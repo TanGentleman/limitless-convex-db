@@ -5,9 +5,8 @@ from typing import List, Dict, Any, Optional, Union
 from convex import ConvexClient
 
 from lifelog.core.schemas import (
-    Lifelog, Metadata,
-    lifelog_to_dict, dict_to_lifelog,
-    metadata_to_dict, dict_to_metadata
+    Lifelog, LocalMetadata,
+    lifelog_to_dict, dict_to_lifelog
 )
 
 class LifelogDataManager:
@@ -52,14 +51,21 @@ class LifelogDataManager:
             return self.db_file
             
         # Save to local storage
-        timestamp = datetime.now().isoformat()
         db = self.load_database()
         
         for lifelog in lifelogs:
             db["lifelogs"][lifelog.id] = lifelog_to_dict(lifelog)
         
-        db["metadata"]["last_updated"] = timestamp
-        db["metadata"]["total_entries"] = len(db["lifelogs"])
+        # Update metadata
+        current_timestamp = datetime.now().isoformat()
+        
+        # Update meta
+        if "meta" not in db:
+            db["meta"] = {}
+        
+        db["meta"]["source_update_time"] = current_timestamp
+        db["meta"]["total_entries"] = len(db["lifelogs"])
+        db["meta"]["ids"] = list(db["lifelogs"].keys())
         
         with open(self.db_file, 'w', encoding='utf-8') as f:
             json.dump(db, f, indent=2, ensure_ascii=False)
@@ -74,6 +80,11 @@ class LifelogDataManager:
                 self.convex_client.mutation("lifelogs:batchAdd", {
                     "lifelogs": lifelog_dicts
                 })
+                # Update cloud sync time
+                db["meta"]["cloud_update_time"] = current_timestamp
+                with open(self.db_file, 'w', encoding='utf-8') as f:
+                    json.dump(db, f, indent=2, ensure_ascii=False)
+                self._cache = db
             except Exception as e:
                 print(f"Error saving to Convex: {e}")
         
@@ -94,17 +105,43 @@ class LifelogDataManager:
             with open(self.db_file, 'r', encoding='utf-8') as f:
                 try:
                     db = json.load(f)
+                    
+                    # Ensure we have the required structure
+                    if "lifelogs" not in db:
+                        db["lifelogs"] = {}
+                        
+                    # Ensure we have the meta structure
+                    if "meta" not in db:
+                        db["meta"] = {
+                            "source_update_time": datetime.now().isoformat(),
+                            "cloud_update_time": None,
+                            "total_entries": len(db.get("lifelogs", {})),
+                            "ids": list(db.get("lifelogs", {}).keys())
+                        }
+                    
                     self._cache = db
                     return db
                 except json.JSONDecodeError:
                     # Handle corrupted file
-                    default_db = {"lifelogs": {}, "metadata": {"last_updated": None, "total_entries": 0}}
+                    default_db = self._create_default_db()
                     self._cache = default_db
                     return default_db
         else:
-            default_db = {"lifelogs": {}, "metadata": {"last_updated": None, "total_entries": 0}}
+            default_db = self._create_default_db()
             self._cache = default_db
             return default_db
+    
+    def _create_default_db(self) -> Dict[str, Any]:
+        """Create a default database structure"""
+        return {
+            "lifelogs": {}, 
+            "meta": {
+                "source_update_time": datetime.now().isoformat(),
+                "cloud_update_time": None,
+                "total_entries": 0,
+                "ids": []
+            }
+        }
     
     def get_lifelogs(self, 
                     limit: Optional[int] = None, 
@@ -199,7 +236,7 @@ class LifelogDataManager:
             return True
             
         # Check when the database was last updated
-        last_updated = db["metadata"].get("last_updated")
+        last_updated = db["meta"].get("source_update_time")
         if not last_updated:
             return True
             
@@ -320,42 +357,179 @@ class LifelogDataManager:
                 
         return output_file
 
-    def save_metadata(self, metadata: Metadata) -> None:
+    def get_local_metadata(self) -> LocalMetadata:
         """
-        Save metadata to the database
+        Get the current local metadata
         
-        Args:
-            metadata: Metadata object to save
+        Returns:
+            LocalMetadata object with current values
         """
         db = self.load_database()
-        db["metadata"] = metadata_to_dict(metadata)
         
+        if "meta" not in db:
+            # Create default metadata if it doesn't exist
+            meta = {
+                "source_update_time": datetime.now().isoformat(),
+                "cloud_update_time": None,
+                "total_entries": len(db.get("lifelogs", {})),
+                "ids": list(db.get("lifelogs", {}).keys())
+            }
+            db["meta"] = meta
+            self._cache = db
+        
+        return LocalMetadata(**db["meta"])
+
+    def update_local_metadata(self, update_source: bool = True, update_cloud: bool = False) -> LocalMetadata:
+        """
+        Update the local metadata with current information
+        
+        Args:
+            update_source: Whether to update the source_update_time
+            update_cloud: Whether to update the cloud_update_time
+        
+        Returns:
+            Updated LocalMetadata
+        """
+        db = self.load_database()
+        
+        if "meta" not in db:
+            db["meta"] = {}
+        
+        current_time = datetime.now().isoformat()
+        
+        if update_source:
+            db["meta"]["source_update_time"] = current_time
+        
+        if update_cloud:
+            db["meta"]["cloud_update_time"] = current_time
+        
+        # Always update these fields to ensure accuracy
+        lifelogs = db.get("lifelogs", {})
+        db["meta"]["total_entries"] = len(lifelogs)
+        db["meta"]["ids"] = list(lifelogs.keys())
+        
+        # Save updates to file
         with open(self.db_file, 'w', encoding='utf-8') as f:
             json.dump(db, f, indent=2, ensure_ascii=False)
         
         self._cache = db
-    
-    def get_metadata(self) -> Metadata:
+        return LocalMetadata(**db["meta"])
+
+    def sync_with_cloud(self, force: bool = False) -> Dict[str, Any]:
         """
-        Get the current metadata
+        Synchronize local data with cloud data
+        
+        Args:
+            force: Whether to force synchronization regardless of last sync time
+            
+        Returns:
+            Dictionary with sync statistics
+        """
+        if not self.convex_client:
+            return {"success": False, "error": "No Convex client configured"}
+        
+        local_metadata = self.get_local_metadata()
+        
+        # If not forcing sync, check if we need to sync based on update times
+        if not force:
+            if local_metadata["cloud_update_time"]:
+                # Check if we've recently synced
+                try:
+                    cloud_update_time = datetime.fromisoformat(local_metadata["cloud_update_time"])
+                    time_since_sync = datetime.now() - cloud_update_time
+                    # Skip sync if we've synced in the last 5 minutes
+                    if time_since_sync < timedelta(minutes=5):
+                        return {
+                            "success": True, 
+                            "skipped": True,
+                            "reason": "Recent sync",
+                            "last_sync": local_metadata["cloud_update_time"]
+                        }
+                except (ValueError, TypeError):
+                    # Invalid timestamp format, proceed with sync
+                    pass
+        
+        try:
+            # Get all lifelogs from cloud
+            cloud_logs = self.convex_client.query("lifelogs:getAll")
+            
+            # Get local logs
+            db = self.load_database()
+            local_logs = db.get("lifelogs", {})
+            
+            # Stats to return
+            stats = {
+                "success": True,
+                "cloud_count": len(cloud_logs),
+                "local_count_before": len(local_logs),
+                "added_to_local": 0,
+                "added_to_cloud": 0,
+            }
+            
+            # Process cloud logs that might not be local
+            cloud_ids = set()
+            for cloud_log in cloud_logs:
+                cloud_ids.add(cloud_log["id"])
+                if cloud_log["id"] not in local_logs:
+                    # Add cloud log to local storage
+                    db["lifelogs"][cloud_log["id"]] = dict(cloud_log)
+                    stats["added_to_local"] += 1
+            
+            # Process local logs that might not be in cloud
+            local_ids = set(local_logs.keys())
+            missing_from_cloud = local_ids - cloud_ids
+            
+            if missing_from_cloud:
+                # Convert missing logs to proper format and upload
+                missing_logs = [local_logs[id] for id in missing_from_cloud]
+                if missing_logs:
+                    self.convex_client.mutation("lifelogs:batchAdd", {
+                        "lifelogs": missing_logs
+                    })
+                    stats["added_to_cloud"] = len(missing_logs)
+            
+            # Update metadata
+            current_time = datetime.now().isoformat()
+            db["meta"]["source_update_time"] = current_time
+            db["meta"]["cloud_update_time"] = current_time
+            db["meta"]["total_entries"] = len(db["lifelogs"])
+            db["meta"]["ids"] = list(db["lifelogs"].keys())
+            
+            # Save updates
+            with open(self.db_file, 'w', encoding='utf-8') as f:
+                json.dump(db, f, indent=2, ensure_ascii=False)
+            
+            self._cache = db
+            
+            stats["local_count_after"] = len(db["lifelogs"])
+            return stats
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def needs_sync(self) -> bool:
+        """
+        Check if synchronization with cloud is needed
         
         Returns:
-            Metadata object with current values or default values if not found
+            True if sync is needed, False otherwise
         """
-        db = self.load_database()
-        if "metadata" in db and isinstance(db["metadata"], dict):
-            try:
-                # Attempt to convert the existing metadata
-                return dict_to_metadata(db["metadata"])
-            except KeyError:
-                # If the metadata is missing required fields, fall back to defaults
-                pass
+        if not self.convex_client:
+            return False
         
-        # Return default metadata
-        return Metadata(
-            local_sync_time=datetime.now().isoformat(),
-            local_log_count=len(db.get("lifelogs", {})),
-            cloud_sync_time=datetime.now().isoformat(),
-            cloud_log_count=0,
-            ids=[]
-        ) 
+        local_metadata = self.get_local_metadata()
+        
+        # If never synced with cloud, definitely need to sync
+        if not local_metadata["cloud_update_time"]:
+            return True
+        
+        try:
+            # Compare source and cloud update times
+            source_time = datetime.fromisoformat(local_metadata["source_update_time"])
+            cloud_time = datetime.fromisoformat(local_metadata["cloud_update_time"])
+            
+            # If local data was updated after the last cloud sync, we need to sync
+            return source_time > cloud_time
+        except (ValueError, TypeError):
+            # If there's an issue with the timestamps, be safe and sync
+            return True 
