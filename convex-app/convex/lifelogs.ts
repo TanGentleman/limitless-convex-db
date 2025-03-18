@@ -182,7 +182,7 @@ export const getLifelogsByTimeRange = query({
     direction: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
   },
   handler: async (ctx, args) => {
-    const { start, end, limit = 20, cursor, direction = "desc" } = args;
+    const { start, end, limit = 20, cursor = null, direction = "desc" } = args;
 
     return await ctx.db
       .query("lifelogs")
@@ -205,7 +205,7 @@ export const getLifelogsByDate = query({
     direction: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
   },
   handler: async (ctx, args) => {
-    const { date, timezone, limit = 20, cursor, direction = "desc" } = args;
+    const { date, timezone, limit = 20, cursor = null, direction = "desc" } = args;
     
     // Convert date to start and end timestamps in the given timezone
     // Note: For proper timezone support, we would need a more robust solution
@@ -245,7 +245,7 @@ export const getLatestLifelogs = query({
     cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { limit = 20, cursor } = args;
+    const { limit = 20, cursor = null } = args;
 
     return await ctx.db
       .query("lifelogs")
@@ -274,11 +274,10 @@ export const searchLifelogs = query({
     cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { query, limit = 20, cursor } = args;
+    const { query, limit = 20, cursor = null } = args;
 
     if (!query.trim()) {
-      // Return latest entries if query is empty
-      return await getLatestLifelogs(ctx, { limit, cursor });
+      throw new Error("Query is empty");
     }
 
     return await ctx.db
