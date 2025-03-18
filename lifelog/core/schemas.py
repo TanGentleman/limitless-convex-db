@@ -3,7 +3,7 @@ from typing import List, Optional, Union, Literal, Any
 from datetime import datetime
 
 @dataclass
-class ContentItem:
+class ContentNode:
     type: Union[Literal["heading1"], Literal["heading2"], Literal["blockquote"]]
     content: str
     start_time: Optional[str] = None
@@ -19,7 +19,7 @@ class Lifelog:
     id: str
     title: str
     markdown: str
-    contents: List[ContentItem]
+    contents: List[ContentNode]
     timestamp: Optional[int] = None  # Unix timestamp (milliseconds since epoch)
 
 @dataclass
@@ -41,8 +41,8 @@ def lifelog_to_dict(lifelog: Lifelog) -> dict:
         "timestamp": lifelog.timestamp
     }
 
-def content_item_to_dict(item: ContentItem) -> dict:
-    """Convert a ContentItem object to a dictionary suitable for JSON serialization"""
+def content_item_to_dict(item: ContentNode) -> dict:
+    """Convert a ContentNode object to a dictionary suitable for JSON serialization"""
     result = {
         "type": item.type,
         "content": item.content
@@ -75,13 +75,13 @@ def dict_to_lifelog(data: dict) -> Lifelog:
         timestamp=data.get("timestamp")
     )
 
-def dict_to_content_item(data: dict) -> ContentItem:
-    """Convert a dictionary to a ContentItem object"""
+def dict_to_content_item(data: dict) -> ContentNode:
+    """Convert a dictionary to a ContentNode object"""
     children = None
     if "children" in data and data["children"]:
         children = [dict_to_content_item(child) for child in data["children"]]
     
-    return ContentItem(
+    return ContentNode(
         type=data["type"],
         content=data["content"],
         start_time=data.get("startTime"),
