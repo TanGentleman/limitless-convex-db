@@ -1,13 +1,41 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import { Doc, Id } from "./_generated/dataModel";
 
+// Types that match our schema
+type ContentItem = {
+  type: "heading1" | "heading2" | "blockquote";
+  content: string;
+  startTime?: string;
+  endTime?: string;
+  startOffsetMs?: number;
+  endOffsetMs?: number;
+  children: any[];
+  speakerName?: string;
+  speakerIdentifier?: "user" | null;
+};
+
+type LifelogInput = {
+  id: string;
+  title: string;
+  markdown: string;
+  timestamp?: number;
+  contents: Array<Omit<ContentItem, "children"> & { children?: any[] }>;
+};
+
+type LifelogDocument = Omit<LifelogInput, "timestamp" | "contents"> & {
+  timestamp: number;
+  contents: ContentItem[];
+};
+
+// Metadata queries
 export const metadataGet = query({
   handler: async ({ db }) => {
     return await db.query("metadata").collect();
   },
 });
 
+// Basic lifelog queries
 export const get = query({
   args: {
     limit: v.optional(v.number()),
@@ -15,21 +43,24 @@ export const get = query({
     end_date: v.optional(v.number())    // Unix timestamp
   },
   handler: async ({ db }, { limit, start_date, end_date }) => {
-    let query = db.query("lifelogs");
+    let lifelogQuery = db.query("lifelogs");
     
     if (start_date) {
-      query = query.filter(q => q.gte(q.field("timestamp"), start_date));
+      lifelogQuery = lifelogQuery.filter(q => q.gte(q.field("timestamp"), start_date));
     }
     
     if (end_date) {
-      query = query.filter(q => q.lte(q.field("timestamp"), end_date));
+      lifelogQuery = lifelogQuery.filter(q => q.lte(q.field("timestamp"), end_date));
     }
+    
+    // Order by timestamp for consistency and better performance with indexes
+    const orderedLifelogQuery = lifelogQuery.withIndex("by_timestamp").order("desc");
     
     if (limit) {
-      return await query.take(limit).collect();
+      return await lifelogQuery.take(limit);
     }
     
-    return await query.collect();
+    return await lifelogQuery.collect();
   }
 });
 
@@ -55,7 +86,6 @@ export const addLifelogCore = mutation({
     })
   },
   handler: async ({ db }, { lifelog }) => {
-    // Simply insert the lifelog with its timestamp
     return await db.insert("lifelogs", lifelog);
   }
 });
@@ -82,76 +112,67 @@ export const add = mutation({
     })
   },
   handler: async (ctx, { lifelog }) => {
+    // Ensure metadata exists or create it
     const metadataTable = await ctx.db.query("metadata").collect();
+    let metadataId: Id<"metadata">;
+    
     if (metadataTable.length === 0) {
       const defaultMetadata = {
         localSyncTime: new Date().toISOString(),
         localLogCount: 0,
         cloudSyncTime: new Date().toISOString(),
-        cloudLogCount: 0
-      }
-      await ctx.db.insert("metadata", defaultMetadata);
-    }
-    const metadata = metadataTable[0];
-
-    // Determine timestamp
-    let timestamp;
-    
-    if (lifelog.timestamp !== undefined) {
-      // Use the directly provided timestamp
-      timestamp = lifelog.timestamp;
-    } else if (lifelog.contents.length > 0 && lifelog.contents[0].startTime) {
-      // Use the first content item's startTime
-      const parsedTime = new Date(lifelog.contents[0].startTime).getTime();
-      
-      // Only use the parsed time if it's valid
-      if (!isNaN(parsedTime)) {
-        timestamp = parsedTime;
-      } else {
-        // Fallback to current time if parsing fails
-        timestamp = Date.now();
-      }
+        cloudLogCount: 0,
+        ids: []
+      };
+      metadataId = await ctx.db.insert("metadata", defaultMetadata);
     } else {
-      // No timestamp provided and no startTime in first content - use current time
-      timestamp = Date.now();
+      metadataId = metadataTable[0]._id;
     }
+
+    // Determine timestamp with proper fallback logic
+    const timestamp = determineTimestamp(lifelog);
     
-    // Prepare lifelog for core insertion
-    const lifelogToInsert = { ...lifelog };
+    // Prepare lifelog for insertion
+    const lifelogToInsert: LifelogDocument = {
+      id: lifelog.id,
+      title: lifelog.title,
+      markdown: lifelog.markdown,
+      contents: lifelog.contents.map(item => ({
+        ...item,
+        children: item.children || [] // Ensure children array exists
+      })),
+      timestamp
+    };
     
-    // Remove the timestamp from the object copy if it was in the input
-    if ('timestamp' in lifelogToInsert) {
-      delete lifelogToInsert.timestamp;
-    }
+    // Insert the lifelog
+    await ctx.db.insert("lifelogs", lifelogToInsert);
     
-    // Ensure each content item has a children array
-    const contentsWithChildren = lifelogToInsert.contents.map(item => ({
-      ...item,
-      children: item.children || [] // Set empty array if children is missing
-    }));
-    
-    // Call the core mutation to insert the lifelog
-    await ctx.runMutation(internal.lifelogs.addLifelogCore, {
-      lifelog: {
-        ...lifelogToInsert,
-        contents: contentsWithChildren,
-        timestamp
-      }
-    });
-    
-    // Update the metadata table
-    await ctx.db.patch(metadata._id, {
+    // Update metadata
+    await ctx.db.patch(metadataId, {
       cloudSyncTime: new Date().toISOString(),
-      cloudLogCount: metadata.cloudLogCount + 1,
-      localSyncTime: metadata.localSyncTime,
-      localLogCount: metadata.localLogCount,
-      ids: [...metadata.ids, lifelog.id]
-      // remember to have assertions about the ids array.
+      cloudLogCount: (metadataTable[0]?.cloudLogCount || 0) + 1,
+      ids: [...(metadataTable[0]?.ids || []), lifelog.id]
     });
   }
 });
 
-// Get lifelogs within a specific time range
+// Helper function to determine timestamp - extracted for clarity
+function determineTimestamp(lifelog: LifelogInput): number {
+  if (lifelog.timestamp !== undefined) {
+    return lifelog.timestamp;
+  } 
+  
+  if (lifelog.contents.length > 0 && lifelog.contents[0].startTime) {
+    const parsedTime = new Date(lifelog.contents[0].startTime).getTime();
+    if (!isNaN(parsedTime)) {
+      return parsedTime;
+    }
+  }
+  
+  return Date.now();
+}
+
+// Time-based query functions
 export const getLifelogsByTimeRange = query({
   args: {
     start: v.number(), // Unix timestamp
@@ -163,7 +184,7 @@ export const getLifelogsByTimeRange = query({
   handler: async (ctx, args) => {
     const { start, end, limit = 20, cursor, direction = "desc" } = args;
 
-    const lifelogs = await ctx.db
+    return await ctx.db
       .query("lifelogs")
       .withIndex("by_timestamp", (q) =>
         q
@@ -172,12 +193,9 @@ export const getLifelogsByTimeRange = query({
       )
       .order(direction)
       .paginate({ cursor, numItems: limit });
-
-    return lifelogs;
   }
 });
 
-// Get lifelogs for a specific date (in a given timezone)
 export const getLifelogsByDate = query({
   args: {
     date: v.string(), // YYYY-MM-DD
@@ -190,24 +208,37 @@ export const getLifelogsByDate = query({
     const { date, timezone, limit = 20, cursor, direction = "desc" } = args;
     
     // Convert date to start and end timestamps in the given timezone
-    const start = new Date(`${date}T00:00:00`).getTime();
-    const end = new Date(`${date}T23:59:59.999`).getTime();
+    // Note: For proper timezone support, we would need a more robust solution
+    // This is a simplified version
+    const startDate = new Date(`${date}T00:00:00${getTimezoneOffset(timezone)}`);
+    const endDate = new Date(`${date}T23:59:59.999${getTimezoneOffset(timezone)}`);
+    
+    const start = startDate.getTime();
+    const end = endDate.getTime();
 
-    const lifelogs = await ctx.db
+    return await ctx.db
       .query("lifelogs")
       .withIndex("by_timestamp", (q) =>
         q
-          .gt("timestamp", start)
-          .lt("timestamp", end)
+          .gte("timestamp", start)
+          .lte("timestamp", end)
       )
       .order(direction)
       .paginate({ cursor, numItems: limit });
-
-    return lifelogs;
   }
 });
 
-// Get latest lifelogs (for paginated feed)
+// Helper function for timezone handling
+function getTimezoneOffset(timezone: string): string {
+  // Simple implementation - in production, you'd use a proper timezone library
+  // This just handles basic +HH:MM or -HH:MM formats
+  if (timezone.match(/^[+-]\d{2}:\d{2}$/)) {
+    return timezone;
+  }
+  return 'Z'; // Default to UTC
+}
+
+// Feed and search queries
 export const getLatestLifelogs = query({
   args: {
     limit: v.optional(v.number()),
@@ -216,32 +247,26 @@ export const getLatestLifelogs = query({
   handler: async (ctx, args) => {
     const { limit = 20, cursor } = args;
 
-    const lifelogs = await ctx.db
+    return await ctx.db
       .query("lifelogs")
       .withIndex("by_timestamp")
       .order("desc")
       .paginate({ cursor, numItems: limit });
-
-    return lifelogs;
   }
 });
 
-// Get a single lifelog by ID
 export const getLifelogById = query({
   args: {
     id: v.string(),
   },
   handler: async (ctx, args) => {
-    const lifelog = await ctx.db
+    return await ctx.db
       .query("lifelogs")
       .filter((q) => q.eq(q.field("id"), args.id))
       .unique();
-
-    return lifelog;
   }
 });
 
-// Search lifelogs by title
 export const searchLifelogs = query({
   args: {
     query: v.string(),
@@ -251,13 +276,16 @@ export const searchLifelogs = query({
   handler: async (ctx, args) => {
     const { query, limit = 20, cursor } = args;
 
-    const lifelogs = await ctx.db
+    if (!query.trim()) {
+      // Return latest entries if query is empty
+      return await getLatestLifelogs(ctx, { limit, cursor });
+    }
+
+    return await ctx.db
       .query("lifelogs")
       .withSearchIndex("search_title_content", (q) =>
         q.search("title", query)
       )
       .paginate({ cursor, numItems: limit });
-
-    return lifelogs;
   }
-});
+}); 
