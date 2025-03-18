@@ -13,11 +13,11 @@ export default defineSchema({
       endTime: v.optional(v.string()),
       startOffsetMs: v.optional(v.number()),
       endOffsetMs: v.optional(v.number()),
-      children: v.array(v.any()),
+      children: v.optional(v.array(v.any())),
       speakerName: v.optional(v.string()),
       speakerIdentifier: v.optional(v.union(v.literal("user"), v.null()))
     })),
-    timestamp: v.number(), // Unix timestamp (milliseconds since epoch)
+    timestamp: v.optional(v.number()), // Unix timestamp (milliseconds since epoch)
   })
   .index("by_timestamp", ["timestamp"])
   .searchIndex("search_title_content", {

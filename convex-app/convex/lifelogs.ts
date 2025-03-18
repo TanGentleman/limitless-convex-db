@@ -2,6 +2,8 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 
+const defaultFetchLimit = 1;
+
 // Types that match our schema
 type ContentItem = {
   type: "heading1" | "heading2" | "blockquote";
@@ -42,7 +44,7 @@ export const get = query({
     start_date: v.optional(v.number()), // Unix timestamp
     end_date: v.optional(v.number())    // Unix timestamp
   },
-  handler: async ({ db }, { limit, start_date, end_date }) => {
+  handler: async ({ db }, { limit = defaultFetchLimit, start_date, end_date }) => {
     let lifelogQuery = db.query("lifelogs");
     
     if (start_date) {
@@ -168,7 +170,7 @@ function determineTimestamp(lifelog: LifelogInput): number {
       return parsedTime;
     }
   }
-  
+  console.log("Timestamp error: Using current time");
   return Date.now();
 }
 
