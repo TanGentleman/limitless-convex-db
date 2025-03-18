@@ -1,55 +1,49 @@
 import json
-import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
+from convex import ConvexClient
+
+from lifelog.core.schemas import (
+    Lifelog, Metadata,
+    lifelog_to_dict, dict_to_lifelog,
+    metadata_to_dict, dict_to_metadata
+)
 
 class LifelogDataManager:
     """
     Manages local storage and retrieval of lifelog data with efficient
-    caching and data validation.
+    caching and data validation using strongly typed schema objects.
     """
     
-    def __init__(self, data_dir: Union[str, Path] = "data"):
+    def __init__(self, data_dir: Union[str, Path] = "data", convex_url: Optional[str] = None):
         """
-        Initialize the data manager with a data directory
+        Initialize the data manager with a data directory and Convex client
         
         Args:
             data_dir: Path to store data files (will be created if doesn't exist)
+            convex_url: URL for Convex backend
         """
         self.data_dir = Path(data_dir)
         self.ensure_data_dir()
         self.db_file = self.data_dir / "lifelogs_db.json"
         self._cache = None  # In-memory cache
+        
+        if convex_url:
+            self.convex_client = ConvexClient(convex_url)
+        else:
+            self.convex_client = None
     
     def ensure_data_dir(self) -> None:
         """Ensure the data directory exists"""
         self.data_dir.mkdir(parents=True, exist_ok=True)
     
-    def get_lifelog_hash(self, lifelog: Dict[str, Any]) -> str:
+    def save_lifelogs(self, lifelogs: List[Lifelog]) -> Path:
         """
-        Generate a unique hash for a lifelog entry
+        Save lifelogs to both local storage and Convex
         
         Args:
-            lifelog: The lifelog entry to hash
-            
-        Returns:
-            A unique hash string for the lifelog
-        """
-        # Use relevant fields to create a unique identifier
-        # Prioritize id and timestamp, but fall back to other fields if needed
-        unique_str = f"{lifelog.get('id', '')}-{lifelog.get('timestamp', '')}"
-        if not unique_str.strip('-'):  # If no id or timestamp
-            content = str(lifelog.get('content', '')) or str(lifelog)
-            unique_str = f"{content}-{datetime.now().isoformat()}"
-        return hashlib.md5(unique_str.encode()).hexdigest()
-    
-    def save_lifelogs(self, lifelogs: List[Dict[str, Any]]) -> Path:
-        """
-        Save lifelogs to the database
-        
-        Args:
-            lifelogs: List of lifelog entries to save
+            lifelogs: List of Lifelog objects to save
             
         Returns:
             Path to the database file
@@ -57,27 +51,31 @@ class LifelogDataManager:
         if not lifelogs:
             return self.db_file
             
-        # Create a timestamp for this update
+        # Save to local storage
         timestamp = datetime.now().isoformat()
-        
-        # Load existing database if it exists
         db = self.load_database()
         
-        # Update database with new lifelogs
         for lifelog in lifelogs:
-            lifelog_id = self.get_lifelog_hash(lifelog)
-            db["lifelogs"][lifelog_id] = lifelog
+            db["lifelogs"][lifelog.id] = lifelog_to_dict(lifelog)
         
-        # Update metadata
         db["metadata"]["last_updated"] = timestamp
         db["metadata"]["total_entries"] = len(db["lifelogs"])
         
-        # Save updated database
         with open(self.db_file, 'w', encoding='utf-8') as f:
             json.dump(db, f, indent=2, ensure_ascii=False)
         
-        # Update cache
         self._cache = db
+        
+        # Save to Convex if configured
+        if self.convex_client:
+            try:
+                # Convert to dictionary format for API
+                lifelog_dicts = [lifelog_to_dict(log) for log in lifelogs]
+                self.convex_client.mutation("lifelogs:batchAdd", {
+                    "lifelogs": lifelog_dicts
+                })
+            except Exception as e:
+                print(f"Error saving to Convex: {e}")
         
         return self.db_file
     
@@ -112,21 +110,42 @@ class LifelogDataManager:
                     limit: Optional[int] = None, 
                     direction: str = "desc",
                     start_date: Optional[str] = None,
-                    end_date: Optional[str] = None) -> List[Dict[str, Any]]:
+                    end_date: Optional[str] = None) -> List[Lifelog]:
         """
-        Retrieve lifelogs from the local database with optional filtering
+        Retrieve lifelogs from local storage or Convex
         
         Args:
             limit: Maximum number of lifelogs to return
-            direction: Sort direction ("asc" or "desc" by timestamp)
-            start_date: Filter logs starting from this date (ISO format)
-            end_date: Filter logs up to this date (ISO format)
-        
+            direction: Sort direction ('asc' or 'desc')
+            start_date: Optional start date filter (ISO format)
+            end_date: Optional end date filter (ISO format)
+            
         Returns:
-            List of lifelog entries
+            List of Lifelog objects
         """
+        # Try Convex first if configured
+        if self.convex_client:
+            try:
+                convex_logs = self.convex_client.query("lifelogs:get", {
+                    "limit": limit,
+                    "start_date": start_date,
+                    "end_date": end_date
+                })
+                
+                if convex_logs:
+                    # Convert to Lifelog objects
+                    lifelogs = [dict_to_lifelog(dict(log)) for log in convex_logs]
+                    lifelogs.sort(
+                        key=lambda x: x.timestamp if x.timestamp else 0,
+                        reverse=(direction.lower() == "desc")
+                    )
+                    return lifelogs[:limit] if limit else lifelogs
+            except Exception as e:
+                print(f"Error fetching from Convex: {e}")
+        
+        # Fall back to local storage
         db = self.load_database()
-        lifelogs = list(db["lifelogs"].values())
+        lifelogs = [dict_to_lifelog(log_dict) for log_dict in db["lifelogs"].values()]
         
         # Apply date filters if provided
         if start_date or end_date:
@@ -135,11 +154,12 @@ class LifelogDataManager:
             end_dt = datetime.fromisoformat(end_date) if end_date else None
             
             for log in lifelogs:
-                if "timestamp" not in log:
+                if log.timestamp is None:
                     continue
                     
                 try:
-                    log_dt = datetime.fromisoformat(log["timestamp"])
+                    # Convert timestamp (ms since epoch) to datetime
+                    log_dt = datetime.fromtimestamp(log.timestamp / 1000)
                     if start_dt and log_dt < start_dt:
                         continue
                     if end_dt and log_dt > end_dt:
@@ -152,7 +172,7 @@ class LifelogDataManager:
         
         # Sort by timestamp
         lifelogs.sort(
-            key=lambda x: x.get("timestamp", ""),
+            key=lambda x: x.timestamp if x.timestamp else 0,
             reverse=(direction.lower() == "desc")
         )
         
@@ -197,28 +217,28 @@ class LifelogDataManager:
             # If there's any issue parsing the timestamp, be safe and refresh
             return True
     
-    def get_most_recent_timestamp(self) -> Optional[str]:
+    def get_most_recent_timestamp(self) -> Optional[int]:
         """
         Get the timestamp of the most recent lifelog entry
         
         Returns:
-            ISO timestamp string or None if no entries exist
+            Unix timestamp (milliseconds) or None if no entries exist
         """
         lifelogs = self.get_lifelogs(limit=1, direction="desc")
         if lifelogs:
-            return lifelogs[0].get("timestamp")
+            return lifelogs[0].timestamp
         return None
         
     def save_summary(self, 
                     summary: str, 
-                    lifelogs: List[Dict[str, Any]], 
+                    lifelogs: List[Lifelog], 
                     date: Optional[str] = None) -> Path:
         """
         Save the summary and related lifelogs to a JSON file
         
         Args:
             summary: The generated summary text
-            lifelogs: List of lifelogs that were summarized
+            lifelogs: List of Lifelog objects that were summarized
             date: Optional date string for the filename (YYYY-MM-DD)
             
         Returns:
@@ -231,7 +251,7 @@ class LifelogDataManager:
             "summary": summary,
             "generated_at": datetime.now().isoformat(),
             "lifelog_count": len(lifelogs),
-            "lifelog_ids": [self.get_lifelog_hash(lifelog) for lifelog in lifelogs],
+            "lifelog_ids": [lifelog.id for lifelog in lifelogs],
             "date": date_str
         }
         
@@ -261,12 +281,12 @@ class LifelogDataManager:
                     return None
         return None
         
-    def export_markdown(self, lifelogs: List[Dict[str, Any]], output_file: Optional[Path] = None) -> Optional[Path]:
+    def export_markdown(self, lifelogs: List[Lifelog], output_file: Optional[Path] = None) -> Optional[Path]:
         """
         Export lifelogs to a markdown file
         
         Args:
-            lifelogs: List of lifelogs to export
+            lifelogs: List of Lifelog objects to export
             output_file: Optional output file path
             
         Returns:
@@ -278,18 +298,64 @@ class LifelogDataManager:
             
         with open(output_file, 'w', encoding='utf-8') as f:
             for lifelog in lifelogs:
-                markdown = lifelog.get("markdown", "")
-                if not markdown and "content" in lifelog:
+                markdown = lifelog.markdown
+                if not markdown:
                     # Create simple markdown if none exists
-                    timestamp = lifelog.get("timestamp", "Unknown time")
-                    try:
-                        dt = datetime.fromisoformat(timestamp)
-                        formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
-                    except (ValueError, TypeError):
-                        formatted_time = timestamp
+                    timestamp = lifelog.timestamp
+                    if timestamp:
+                        try:
+                            dt = datetime.fromtimestamp(timestamp / 1000)
+                            formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        except (ValueError, TypeError):
+                            formatted_time = "Unknown time"
+                    else:
+                        formatted_time = "Unknown time"
                         
-                    markdown = f"## Entry at {formatted_time}\n\n{lifelog['content']}\n\n"
+                    # Generate simple markdown from title and contents
+                    markdown = f"## {lifelog.title}\n\n"
+                    for item in lifelog.contents:
+                        markdown += f"{item.content}\n\n"
                 
                 f.write(markdown + "\n\n")
                 
-        return output_file 
+        return output_file
+
+    def save_metadata(self, metadata: Metadata) -> None:
+        """
+        Save metadata to the database
+        
+        Args:
+            metadata: Metadata object to save
+        """
+        db = self.load_database()
+        db["metadata"] = metadata_to_dict(metadata)
+        
+        with open(self.db_file, 'w', encoding='utf-8') as f:
+            json.dump(db, f, indent=2, ensure_ascii=False)
+        
+        self._cache = db
+    
+    def get_metadata(self) -> Metadata:
+        """
+        Get the current metadata
+        
+        Returns:
+            Metadata object with current values or default values if not found
+        """
+        db = self.load_database()
+        if "metadata" in db and isinstance(db["metadata"], dict):
+            try:
+                # Attempt to convert the existing metadata
+                return dict_to_metadata(db["metadata"])
+            except KeyError:
+                # If the metadata is missing required fields, fall back to defaults
+                pass
+        
+        # Return default metadata
+        return Metadata(
+            local_sync_time=datetime.now().isoformat(),
+            local_log_count=len(db.get("lifelogs", {})),
+            cloud_sync_time=datetime.now().isoformat(),
+            cloud_log_count=0,
+            ids=[]
+        ) 
