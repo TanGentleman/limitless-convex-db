@@ -25,7 +25,10 @@ export default defineSchema({
   }),
   
   metadata: defineTable({
-    last_updated: v.string(), // ISO-8601 string
-    total_entries: v.number()
+    localSyncTime: v.string(), // ISO-8601 string
+    localLogCount: v.number(),
+    cloudSyncTime: v.string(), // ISO-8601 string
+    cloudLogCount: v.number(),
+    ids: v.array(v.string())
   })
 });
