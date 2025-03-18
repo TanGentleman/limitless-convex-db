@@ -12,7 +12,7 @@ type ContentItem = {
   endTime?: string;
   startOffsetMs?: number;
   endOffsetMs?: number;
-  children: any[];
+  children?: any[];
   speakerName?: string;
   speakerIdentifier?: "user" | null;
 };
@@ -22,18 +22,13 @@ type LifelogInput = {
   title: string;
   markdown: string;
   timestamp?: number;
-  contents: Array<Omit<ContentItem, "children"> & { children?: any[] }>;
-};
-
-type LifelogDocument = Omit<LifelogInput, "timestamp" | "contents"> & {
-  timestamp: number;
   contents: ContentItem[];
 };
 
 // Metadata queries
 export const metadataGet = query({
   handler: async ({ db }) => {
-    return await db.query("metadata").collect();
+    return await db.query("metadata").take(1);
   },
 });
 
@@ -45,8 +40,10 @@ export const get = query({
     end_date: v.optional(v.number())    // Unix timestamp
   },
   handler: async ({ db }, { limit = defaultFetchLimit, start_date, end_date }) => {
-    let lifelogQuery = db.query("lifelogs");
+    // Start with the index and order first
+    let lifelogQuery = db.query("lifelogs").withIndex("by_timestamp").order("desc");
     
+    // Then apply filters
     if (start_date) {
       lifelogQuery = lifelogQuery.filter(q => q.gte(q.field("timestamp"), start_date));
     }
@@ -54,9 +51,6 @@ export const get = query({
     if (end_date) {
       lifelogQuery = lifelogQuery.filter(q => q.lte(q.field("timestamp"), end_date));
     }
-    
-    // Order by timestamp for consistency and better performance with indexes
-    const orderedLifelogQuery = lifelogQuery.withIndex("by_timestamp").order("desc");
     
     if (limit) {
       return await lifelogQuery.take(limit);
@@ -135,14 +129,11 @@ export const add = mutation({
     const timestamp = determineTimestamp(lifelog);
     
     // Prepare lifelog for insertion
-    const lifelogToInsert: LifelogDocument = {
+    const lifelogToInsert: LifelogInput = {
       id: lifelog.id,
       title: lifelog.title,
       markdown: lifelog.markdown,
-      contents: lifelog.contents.map(item => ({
-        ...item,
-        children: item.children || [] // Ensure children array exists
-      })),
+      contents: lifelog.contents,
       timestamp
     };
     
@@ -288,5 +279,96 @@ export const searchLifelogs = query({
         q.search("title", query)
       )
       .paginate({ cursor, numItems: limit });
+  }
+});
+
+// Batch add mutation that efficiently handles multiple lifelogs
+export const batchAdd = mutation({
+  args: {
+    lifelogs: v.array(
+      v.object({
+        id: v.string(),
+        title: v.string(),
+        markdown: v.string(),
+        timestamp: v.optional(v.number()),
+        contents: v.array(v.object({
+          content: v.string(),
+          type: v.union(v.literal("heading1"), v.literal("heading2"), v.literal("blockquote")),
+          speakerName: v.optional(v.string()),
+          startTime: v.optional(v.string()),
+          endTime: v.optional(v.string()),
+          startOffsetMs: v.optional(v.number()),
+          endOffsetMs: v.optional(v.number()),
+          children: v.optional(v.array(v.any())),
+          speakerIdentifier: v.optional(v.union(v.literal("user"), v.null()))
+        }))
+      })
+    )
+  },
+  handler: async (ctx, { lifelogs }) => {
+    // Early exit if no lifelogs provided
+    if (lifelogs.length === 0) {
+      return { inserted: 0, skipped: 0 };
+    }
+    
+    // Get metadata once to check existing IDs
+    const metadataTable = await ctx.db.query("metadata").take(1);
+    let metadataId: Id<"metadata">;
+    let existingIds: string[] = [];
+    
+    if (metadataTable.length === 0) {
+      const defaultMetadata = {
+        localSyncTime: new Date().toISOString(),
+        localLogCount: 0,
+        cloudSyncTime: new Date().toISOString(),
+        cloudLogCount: 0,
+        ids: []
+      };
+      metadataId = await ctx.db.insert("metadata", defaultMetadata);
+      console.log("Metadata created");
+    } else {
+      metadataId = metadataTable[0]._id;
+      existingIds = metadataTable[0].ids || [];
+    }
+
+    // Filter out duplicates based on ID
+    const newLogs = lifelogs.filter(log => !existingIds.includes(log.id));
+    const skippedCount = lifelogs.length - newLogs.length;
+    
+    // Process and insert each new lifelog sequentially
+    let insertedCount = 0;
+    for (const lifelog of newLogs) {
+      // Add timestamp using the same logic as single add
+      const timestamp = determineTimestamp(lifelog);
+      
+      // Prepare lifelog with proper structure
+      const lifelogToInsert: LifelogInput = {
+        id: lifelog.id,
+        title: lifelog.title,
+        markdown: lifelog.markdown,
+        contents: lifelog.contents,
+        timestamp
+      };
+      
+      // Insert one at a time
+      await ctx.db.insert("lifelogs", lifelogToInsert);
+      insertedCount++;
+    }
+    
+    // Update metadata once at the end
+    if (newLogs.length > 0) {
+      const newIds = [...existingIds, ...newLogs.map(log => log.id)];
+      await ctx.db.patch(metadataId, {
+        cloudSyncTime: new Date().toISOString(),
+        cloudLogCount: (metadataTable[0]?.cloudLogCount || 0) + newLogs.length,
+        ids: newIds
+      });
+    }
+    
+    // Return stats for the operation
+    return {
+      inserted: insertedCount,
+      skipped: skippedCount
+    };
   }
 }); 
