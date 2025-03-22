@@ -30,5 +30,18 @@ export default defineSchema({
     cloudSyncTime: v.string(), // ISO-8601 string
     cloudLogCount: v.number(),
     ids: v.array(v.string())
+  }),
+  operations: defineTable({
+    timestamp: v.number(),
+    operation: v.union(v.literal("sync"), v.literal("get")),
+    data: v.any()
+  }),
+  embeddings: defineTable({
+    id: v.string(),
+    embedding: v.array(v.number()),
+    timestamp: v.number(),
+    metadata: v.object({
+      source: v.string()
+    })
   })
 });
