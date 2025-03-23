@@ -19,6 +19,8 @@ export default defineSchema({
     })),
     startTime: v.optional(v.number()),
     endTime: v.optional(v.number()),
+    // If the chunk has been embedded, which embedding corresponds to it
+    embeddingId: v.union(v.id("embeddings"), v.null()),
   })
   .index("by_start_time", ["startTime"])
   .index("by_end_time", ["endTime"])
@@ -49,4 +51,8 @@ export default defineSchema({
     markdown: v.string(),
     embedding: v.array(v.number()),
   })
+  .vectorIndex("byEmbedding", {
+    vectorField: "embedding",
+    dimensions: 1536,
+  }),
 });
