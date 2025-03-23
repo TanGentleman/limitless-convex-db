@@ -42,6 +42,8 @@ export default defineSchema({
   operations: defineTable({
     timestamp: v.number(),
     operation: v.union(v.literal("sync"), v.literal("create"), v.literal("read"), v.literal("update"), v.literal("delete")),
+    table: v.union(v.literal("lifelogs"), v.literal("metadata"), v.literal("markdownEmbeddings")),
+    success: v.boolean(),
     data: v.any()
   })
   .index("by_timestamp", ["timestamp"]),
