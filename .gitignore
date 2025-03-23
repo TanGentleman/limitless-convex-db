@@ -2,3 +2,8 @@
 .env
 .env.local
 .DS_Store
+__pycache__/
+# convex-app/convex/
+convex-app/node_modules/*
+convex-app/convex/_generated/
+convex-app/package-lock.json
