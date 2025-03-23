@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, } from "./_generated/server";
-import { LifelogNode, lifelogObject } from "./lifelogs";
+import { LifelogNode } from "./lifelogs";
 
 /**
  * Request parameters for retrieving lifelogs.
@@ -19,12 +19,15 @@ export type LifelogRequest = {
   limit?: number;         // Maximum number of entries to return
 }
 
+const defaultTotalLimit = 100;
+const defaultBatchSize = 10;
+
 // TODO: Add tracking of operations and insert into operations table
 export const syncLimitless = internalAction({
     handler: async (ctx) => {
         let operations: any[] = [];
-        // 1. Call internal.metadata.getLatest to get meta
-        const metaList = await ctx.runQuery(internal.metadata.getLatest);
+        // 1. Call internal.metadata.readLatest to get meta
+        const metaList = await ctx.runQuery(internal.metadata.readLatest);
         if (metaList.length === 0) {
             console.log("No metadata found, creating default");
             const metaId = await ctx.runMutation(internal.metadata.createDefaultMeta);
@@ -45,6 +48,7 @@ export const syncLimitless = internalAction({
             }
         }
         const metadata = metaList[0];
+        console.log(`Metadata: ${JSON.stringify(metadata)}`);
         // const start = new Date(args.lastSynced).toISOString();
         
         // 2. Fetch lifelogs from Limitless API
@@ -127,18 +131,19 @@ export const syncLimitless = internalAction({
             });
         }
         
-//         // 6. Report operations to the operations table
-//         await ctx.runMutation(internal.operations.recordSync, {
-//             startTime: args.startTime,
-//             endTime: Date.now(),
-//             lifelogsProcessed: lifelogs.length,
-//             lifelogsAdded: addedCount,
-//         });
-        
-//         return {
-//             processed: lifelogs.length,
-//             added: addedCount
-//         };
+        // 6. Report operations to the operations table
+        operations.push({
+            operation: "sync",
+            table: "metadata",
+            success: true,
+            data: {
+                lifelogsProcessed: lifelogs.length,
+                lifelogsAdded: lifelogIds.length
+            },
+        });
+        await ctx.runMutation(internal.operations.create, {
+            operations: operations,
+        });
     },
 });
 
@@ -152,8 +157,8 @@ async function fetchLifelogs(args: LifelogRequest) {
     
     const allLifelogs: LifelogNode[] = [];
     let cursor = args.cursor;
-    const limit = args.limit || 20;
-    let batchSize = args.limit || 10;
+    const limit = args.limit || defaultTotalLimit;
+    let batchSize = args.limit || defaultBatchSize;
     
     // If limit is not null, set a batch size and fetch until we reach the limit
     if (limit !== null) {

@@ -38,9 +38,8 @@ export const createDefaultMeta = internalMutation({
 
 // READ
 // Get the latest meta entry
-export const getLatest = internalQuery({
+export const readLatest = internalQuery({
   handler: async (ctx) => {
-    const meta = await ctx.db.query("metadata").take(1);
-    return meta;
+    return await ctx.db.query("metadata").order("desc").take(1);
   },
 });
