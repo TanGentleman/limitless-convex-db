@@ -12,16 +12,17 @@ type ContentNode = {
   endTime?: string;
   startOffsetMs?: number;
   endOffsetMs?: number;
-  children?: any[];
-  speakerName?: string;
+  children?: ContentNode[];
+  speakerName?: string | null;
   speakerIdentifier?: "user" | null;
 };
 
 type LifelogInput = {
   id: string;
   title: string;
-  markdown: string;
-  timestamp?: number;
+  markdown: string | null;
+  startTime?: string;
+  endTime?: string;
   contents: ContentNode[];
 };
 
