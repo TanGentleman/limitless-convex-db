@@ -90,6 +90,70 @@ export const deleteAll = internalMutation({
       await ctx.db.delete(lifelog._id);
     }
     
+    // Log the delete operation once for the entire batch
+    await ctx.db.insert("operations", {
+      operation: "delete",
+      table: "lifelogs",
+      success: true,
+      data: {
+        count: lifelogs.length,
+        reason: "deleteAll"
+      }
+    });
+    
     return { ids: lifelogs.map((lifelog) => lifelog.lifelogId) };
+  },
+});
+
+// Delete duplicate lifelogs, keeping only the oldest version of each
+export const deleteDuplicates = internalMutation({
+  handler: async (ctx) => {
+    // Get all lifelogs
+    const lifelogs = await ctx.db.query("lifelogs").collect();
+    
+    // Create a map to track the oldest document for each lifelogId
+    const oldestLifelogs = new Map<string, Doc<"lifelogs">>();
+    
+    // Find the oldest document for each lifelogId
+    for (const lifelog of lifelogs) {
+      const existingLifelog = oldestLifelogs.get(lifelog.lifelogId);
+      
+      // If we haven't seen this ID before, or this is older than what we have, keep it
+      if (!existingLifelog || lifelog._creationTime < existingLifelog._creationTime) {
+        oldestLifelogs.set(lifelog.lifelogId, lifelog);
+      }
+    }
+    
+    // Identify duplicates (all documents except the oldest for each ID)
+    const duplicatesToDelete: Id<"lifelogs">[] = [];
+    for (const lifelog of lifelogs) {
+      const oldestLifelog = oldestLifelogs.get(lifelog.lifelogId);
+      if (oldestLifelog && lifelog._id !== oldestLifelog._id) {
+        duplicatesToDelete.push(lifelog._id);
+      }
+    }
+    
+    // Delete the duplicates
+    for (const id of duplicatesToDelete) {
+      await ctx.db.delete(id);
+    }
+    
+    // Log the operation once for the entire batch deletion
+    if (duplicatesToDelete.length > 0) {
+      await ctx.db.insert("operations", {
+        operation: "delete",
+        table: "lifelogs",
+        success: true,
+        data: {
+          count: duplicatesToDelete.length,
+          reason: "duplicates"
+        }
+      });
+    }
+    
+    return { 
+      deletedCount: duplicatesToDelete.length,
+      remainingCount: oldestLifelogs.size
+    };
   },
 });
