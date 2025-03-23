@@ -19,8 +19,9 @@ export type LifelogRequest = {
   limit?: number;         // Maximum number of entries to return
 }
 
-const defaultTotalLimit = 100;
+const defaultTotalLimit = 50;
 const defaultBatchSize = 10;
+const defaultDirection = "asc";
 
 // TODO: Add tracking of operations and insert into operations table
 export const syncLimitless = internalAction({
@@ -49,7 +50,6 @@ export const syncLimitless = internalAction({
         }
         const metadata = metaList[0];
         console.log(`Metadata: ${JSON.stringify(metadata)}`);
-        // const start = new Date(args.lastSynced).toISOString();
         
         // 2. Fetch lifelogs from Limitless API
         const lifelogs = await fetchLifelogs(
@@ -127,6 +127,7 @@ export const syncLimitless = internalAction({
                     endTime: convexLifelogs[convexLifelogs.length - 1].endTime,
                     lifelogIds: metadata.lifelogIds.concat(lifelogIds),
                     syncedUntil: convexLifelogs[convexLifelogs.length - 1].endTime
+                    // NOTE: If we ever need to sync in descending order, we should ensure this isn't backwards
                 }
             });
         }
@@ -170,7 +171,7 @@ async function fetchLifelogs(args: LifelogRequest) {
             limit: batchSize,
             include_markdown: args.include_markdown === false ? false : true,
             include_headings: args.include_headings === false ? false : true,
-            direction: args.direction || "asc",
+            direction: args.direction || defaultDirection,
             timezone: args.timezone || process.env.TIMEZONE
         };
         // Add start only if it's not null
@@ -224,7 +225,7 @@ async function fetchLifelogs(args: LifelogRequest) {
                 break;
             }
             
-            console.log(`Fetched ${lifelogs.length} lifelogs, next cursor: ${nextCursor}`);
+            console.log(`Fetched ${lifelogs.length} lifelogs and received cursor`);
             cursor = nextCursor;
         } catch (error) {
             console.error("Error fetching lifelogs:", error);
