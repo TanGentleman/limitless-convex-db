@@ -5,7 +5,7 @@ import { Doc, Id } from "./_generated/dataModel";
 
 const EXPERIMENTAL_FETCH_LIMIT = 1;
 
-// CRUD operations for lifelogs
+// Define types
 type ContentNode = {
   type: "heading1" | "heading2" | "heading3" | "blockquote";
   content: string;
@@ -18,7 +18,7 @@ type ContentNode = {
   speakerIdentifier?: "user" | null;
 };
 
-type LifelogNode = {
+export type LifelogNode = {
   id: string;
   title: string;
   markdown: string | null;
@@ -28,28 +28,30 @@ type LifelogNode = {
   embeddingId: Id<"markdownEmbeddings"> | null;
 };
 
+const lifelogObject = v.object({
+  id: v.string(),
+  title: v.string(),
+  markdown: v.union(v.string(), v.null()),
+  startTime: v.number(),
+  endTime: v.number(),
+  contents: v.array(v.object({
+    type: v.union(v.literal("heading1"), v.literal("heading2"), v.literal("heading3"), v.literal("blockquote")),
+    content: v.string(),
+    startTime: v.optional(v.number()),
+    endTime: v.optional(v.number()),
+    startOffsetMs: v.optional(v.number()),
+    endOffsetMs: v.optional(v.number()),
+    children: v.optional(v.array(v.any())),
+    speakerName: v.optional(v.union(v.string(), v.null())),
+    speakerIdentifier: v.optional(v.union(v.literal("user"), v.null()))
+  })),
+})
+
 // CREATE
 // Add new lifelogs (Assume these have been de-duped from lifelog_ids in the meta table)
 export const create = internalMutation({
   args: {
-    lifelogs: v.array(v.object({
-      id: v.string(),
-      title: v.string(),
-      markdown: v.union(v.string(), v.null()),
-      startTime: v.number(),
-      endTime: v.number(),
-      contents: v.array(v.object({
-        type: v.union(v.literal("heading1"), v.literal("heading2"), v.literal("heading3"), v.literal("blockquote")),
-        content: v.string(),
-        startTime: v.optional(v.number()),
-        endTime: v.optional(v.number()),
-        startOffsetMs: v.optional(v.number()),
-        endOffsetMs: v.optional(v.number()),
-        children: v.optional(v.array(v.any())),
-        speakerName: v.optional(v.union(v.string(), v.null())),
-        speakerIdentifier: v.optional(v.union(v.literal("user"), v.null()))
-      })),
-    })), 
+    lifelogs: v.array(lifelogObject),
   },
   handler: async (ctx, args) => {
     const lifelogs = args.lifelogs;
