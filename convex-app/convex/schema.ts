@@ -3,24 +3,24 @@ import { v } from "convex/values";
 
 export default defineSchema({
   lifelogs: defineTable({
-    lifelog_id: v.string(),
+    lifelogId: v.string(),
     title: v.string(),
-    markdown: v.string(),
+    markdown: v.union(v.string(), v.null()),
     contents: v.array(v.object({
-      type: v.union(v.literal("heading1"), v.literal("heading2"), v.literal("blockquote")),
+      type: v.union(v.literal("heading1"), v.literal("heading2"), v.literal("heading3"), v.literal("blockquote")),
       content: v.string(),
-      startTime: v.optional(v.string()),
-      endTime: v.optional(v.string()),
+      startTime: v.optional(v.number()),
+      endTime: v.optional(v.number()),
       startOffsetMs: v.optional(v.number()),
       endOffsetMs: v.optional(v.number()),
       children: v.optional(v.array(v.any())),
-      speakerName: v.optional(v.string()),
+      speakerName: v.optional(v.union(v.string(), v.null())),
       speakerIdentifier: v.optional(v.union(v.literal("user"), v.null()))
     })),
-    startTime: v.optional(v.number()),
-    endTime: v.optional(v.number()),
+    startTime: v.number(),
+    endTime: v.number(),
     // If the chunk has been embedded, which embedding corresponds to it
-    embeddingId: v.union(v.id("embeddings"), v.null()),
+    embeddingId: v.union(v.id("markdownEmbeddings"), v.null()),
   })
   .index("by_start_time", ["startTime"])
   .index("by_end_time", ["endTime"])
@@ -49,9 +49,9 @@ export default defineSchema({
   .index("by_timestamp", ["timestamp"]),
   
   markdownEmbeddings: defineTable({
-    lifelog_id: v.string(),
+    lifelogId: v.string(),
     markdown: v.string(),
-    embedding: v.array(v.number()),
+    embedding: v.optional(v.array(v.number())),
   })
   .vectorIndex("byEmbedding", {
     vectorField: "embedding",
