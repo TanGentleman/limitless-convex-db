@@ -3,7 +3,7 @@ import { v } from "convex/values";
 
 export default defineSchema({
   lifelogs: defineTable({
-    id: v.string(),
+    lifelog_id: v.string(),
     title: v.string(),
     markdown: v.string(),
     contents: v.array(v.object({
@@ -17,31 +17,36 @@ export default defineSchema({
       speakerName: v.optional(v.string()),
       speakerIdentifier: v.optional(v.union(v.literal("user"), v.null()))
     })),
-    timestamp: v.optional(v.number()), // Unix timestamp (milliseconds since epoch)
+    startTime: v.optional(v.number()),
+    endTime: v.optional(v.number()),
   })
-  .index("by_timestamp", ["timestamp"])
+  .index("by_start_time", ["startTime"])
+  .index("by_end_time", ["endTime"])
+  .index("by_time_range", ["startTime", "endTime"])
   .searchIndex("search_title_content", {
     searchField: "title",
+  })
+  .searchIndex("search_markdown_content", {
+    searchField: "markdown",
   }),
   
   metadata: defineTable({
-    localSyncTime: v.string(), // ISO-8601 string
-    localLogCount: v.number(),
-    cloudSyncTime: v.string(), // ISO-8601 string
-    cloudLogCount: v.number(),
-    ids: v.array(v.string())
+    startTime: v.number(),
+    endTime: v.number(),
+    syncedUntil: v.number(),
+    lifelogIds: v.array(v.string()),
   }),
+  
   operations: defineTable({
     timestamp: v.number(),
-    operation: v.union(v.literal("sync"), v.literal("get")),
+    operation: v.union(v.literal("sync"), v.literal("create"), v.literal("read"), v.literal("update"), v.literal("delete")),
     data: v.any()
-  }),
-  embeddings: defineTable({
-    id: v.string(),
+  })
+  .index("by_timestamp", ["timestamp"]),
+  
+  markdownEmbeddings: defineTable({
+    lifelog_id: v.string(),
+    markdown: v.string(),
     embedding: v.array(v.number()),
-    timestamp: v.number(),
-    metadata: v.object({
-      source: v.string()
-    })
   })
 });
