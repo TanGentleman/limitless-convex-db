@@ -19,7 +19,6 @@ export default defineSchema({
     })),
     startTime: v.number(),
     endTime: v.number(),
-    // If the chunk has been embedded, which embedding corresponds to it
     embeddingId: v.union(v.id("markdownEmbeddings"), v.null()),
   })
   .index("by_start_time", ["startTime"])
@@ -40,13 +39,11 @@ export default defineSchema({
   }),
   
   operations: defineTable({
-    timestamp: v.number(),
     operation: v.union(v.literal("sync"), v.literal("create"), v.literal("read"), v.literal("update"), v.literal("delete")),
     table: v.union(v.literal("lifelogs"), v.literal("metadata"), v.literal("markdownEmbeddings")),
     success: v.boolean(),
     data: v.any()
-  })
-  .index("by_timestamp", ["timestamp"]),
+  }),
   
   markdownEmbeddings: defineTable({
     lifelogId: v.string(),
