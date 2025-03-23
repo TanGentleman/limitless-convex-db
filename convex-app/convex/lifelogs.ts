@@ -9,8 +9,8 @@ const EXPERIMENTAL_FETCH_LIMIT = 1;
 type ContentNode = {
   type: "heading1" | "heading2" | "heading3" | "blockquote";
   content: string;
-  startTime?: number;
-  endTime?: number;
+  startTime?: string; // ISO format
+  endTime?: string; // ISO format
   startOffsetMs?: number;
   endOffsetMs?: number;
   children?: ContentNode[];
@@ -22,13 +22,13 @@ export type LifelogNode = {
   id: string;
   title: string;
   markdown: string | null;
-  startTime: number;
-  endTime: number;
+  startTime?: string; // ISO format
+  endTime?: string; // ISO format
   contents: ContentNode[];
   embeddingId: Id<"markdownEmbeddings"> | null;
 };
 
-const lifelogObject = v.object({
+export const lifelogObject = v.object({
   id: v.string(),
   title: v.string(),
   markdown: v.union(v.string(), v.null()),
@@ -75,7 +75,7 @@ export const create = internalMutation({
       });
     }
     
-    return { ids: lifelogs.map((lifelog) => lifelog.id) };
+    return lifelogs.map((lifelog) => lifelog.id);
   },
 });
 
