@@ -2,11 +2,13 @@
 
 You can port data easily from the Limitless pendant to a Convex database. All you need is a Limitless API key to start.
 
-Advantages:
-- Schedule syncs
-- Full lifelog management (It's your data after all)
-- Type safety that plays nice with your existing software stack
-- Queries scale beautifully, and Convex can be self-hosted
+## Benefits
+
+- **Scheduled Syncs**: Automate data transfers on your preferred schedule
+- **Full Lifelog Management**: Maintain ownership and control of your personal data
+- **Type Safety**: Seamlessly integrates with your existing TypeScript/Python applications
+- **Scalable Queries**: Handle large datasets with Convex's optimized query engine
+- **Deployment Options**: Self-host or use Convex's cloud infrastructure
 
 ## Quick Start
 
@@ -38,14 +40,19 @@ Advantages:
      npx convex env set TIMEZONE=your_IANA_timezone
      ```
 
-6. (Optional) For Python integration, see `python-src/README.md`
+6. For Python integration:
+   ```bash
+   cd python-src
+   pip install -r requirements.txt
+   python main.py
+   ```
+   See `python-src/README.md` for more details.
 
-## Requirements
 
-- Limitless API key
-- Convex Deployment URL
+## Support
 
-## License
+If you encounter any issues or have questions about this integration, please feel free to open an issue in the repository.
 
-MIT licensed. Have fun!
+Happy building!
 
+-- Tan
