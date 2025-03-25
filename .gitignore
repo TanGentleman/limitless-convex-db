@@ -7,3 +7,5 @@ __pycache__/
 convex-app/node_modules/*
 convex-app/convex/_generated/
 convex-app/package-lock.json
+deprecated/
+data/
