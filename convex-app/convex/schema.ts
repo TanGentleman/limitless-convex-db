@@ -42,7 +42,10 @@ export default defineSchema({
     operation: v.union(v.literal("sync"), v.literal("create"), v.literal("read"), v.literal("update"), v.literal("delete")),
     table: v.union(v.literal("lifelogs"), v.literal("metadata"), v.literal("markdownEmbeddings")),
     success: v.boolean(),
-    data: v.any()
+    data: v.object({
+      message: v.optional(v.string()),
+      error: v.optional(v.string()),
+    })
   }),
   
   markdownEmbeddings: defineTable({

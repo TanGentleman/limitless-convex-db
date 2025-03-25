@@ -1,16 +1,29 @@
+"""
+This script:
+1. Initializes a Convex client using environment variables
+2. Triggers a sync operation
+3. Optionally sends a Slack notification with the sync status
+"""
+
 import os
 
 from dotenv import load_dotenv
-
 from convex import ConvexClient
 
-load_dotenv(".env.local")
-CONVEX_URL = os.getenv("CONVEX_URL")
+# Set after adding SLACK_WEBHOOK_URL to Convex Environment
+SEND_SLACK_NOTIFICATION = True
 
-client = ConvexClient(CONVEX_URL)
+def get_client():
+    """Initialize Convex client. Requires .env with CONVEX_URL."""
+    load_dotenv()
+    backend_url = os.getenv("CONVEX_URL")
+    if not backend_url:
+        raise ValueError("CONVEX_URL not set in .env")
+    return ConvexClient(backend_url)
 
-print(client.query("metadata:get"))
+def main():
+    client = get_client()
+    print(client.action("extras/hooks:sync", {"sendNotification": SEND_SLACK_NOTIFICATION}))
 
-for tasks in client.subscribe("metadata:get"):
-    print(tasks)
-    # this loop lasts forever, ctrl-c to exit it
+if __name__ == "__main__":
+    main()

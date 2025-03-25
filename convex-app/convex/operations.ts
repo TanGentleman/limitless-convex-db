@@ -1,28 +1,13 @@
 // This file defines functions for logging operations in the database
 import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import { Doc, Id } from "./_generated/dataModel";
+import { operationsDoc } from "./types";
 
 // CREATE
 // Log a new operation
 export const create = internalMutation({
   args: {
-    operations: v.array(v.object({
-      operation: v.union(
-        v.literal("sync"), 
-        v.literal("create"), 
-        v.literal("read"), 
-        v.literal("update"), 
-        v.literal("delete")
-      ),
-      table: v.union(
-        v.literal("lifelogs"), 
-        v.literal("metadata"), 
-        v.literal("markdownEmbeddings")
-      ),
-      success: v.boolean(),
-      data: v.any(),
-    })),
+    operations: v.array(operationsDoc),
   },
   handler: async (ctx, args) => {
     for (const operation of args.operations) {
@@ -35,7 +20,10 @@ export const create = internalMutation({
 export const logSync = internalMutation({
   args: {
     success: v.boolean(),
-    data: v.any(),
+    data: v.object({
+      message: v.optional(v.string()),
+      error: v.optional(v.string()),
+    }),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("operations", {

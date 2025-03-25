@@ -1,0 +1,23 @@
+{
+  "name": "limitless-convex",
+  "version": "1.0.0",
+  "description": "Convex integration for Limitless API",
+  "main": "index.js",
+  "scripts": {
+    "dev": "npx convex dev",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "convex",
+    "limitless"
+  ],
+  "author": "TanGentleman",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "convex": "^1.21.0"
+  },
+  "optionalDependencies": {
+    "@slack/webhook": "^7.0.5"
+  }
+}

@@ -2,19 +2,13 @@
 import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
-
+import { metadataDoc } from "./types";
 import { seedMetadata } from "./sampleData/seeds";
 
 // CREATE
-// Add a new meta entry
 export const create = internalMutation({
   args: {
-    meta: v.object({
-      startTime: v.number(),
-      endTime: v.number(),
-      syncedUntil: v.number(),
-      lifelogIds: v.array(v.string()),
-    }),
+    meta: metadataDoc,
   },
   handler: async (ctx, args) => {
     const meta = args.meta;

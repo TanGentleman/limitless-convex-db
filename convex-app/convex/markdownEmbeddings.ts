@@ -2,21 +2,14 @@
 import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
+import { markdownEmbeddingDoc } from "./types";
 
 // CREATE
 // Store a new markdown embedding
 export const create = internalMutation({
-  args: {
-    markdown: v.string(),
-    embedding: v.optional(v.array(v.number())),
-    lifelogId: v.string(),
-  },
+  args: markdownEmbeddingDoc,
   handler: async (ctx, args) => {
-    return await ctx.db.insert("markdownEmbeddings", {
-      markdown: args.markdown,
-      embedding: args.embedding,
-      lifelogId: args.lifelogId,
-    });
+    return await ctx.db.insert("markdownEmbeddings", args);
   },
 });
 
