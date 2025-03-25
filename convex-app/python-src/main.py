@@ -1,16 +1,18 @@
 import os
 
 from dotenv import load_dotenv
-
 from convex import ConvexClient
 
-load_dotenv(".env.local")
-CONVEX_URL = os.getenv("CONVEX_URL")
+def get_client():
+    load_dotenv()
+    backend_url = os.getenv("CONVEX_URL")
+    if not backend_url:
+        raise ValueError("CONVEX_URL is not set")
+    return ConvexClient(backend_url)
 
-client = ConvexClient(CONVEX_URL)
+def main():
+    client = get_client()
+    print(client.mutation("sync:syncLimitless"))
 
-print(client.query("metadata:get"))
-
-for tasks in client.subscribe("metadata:get"):
-    print(tasks)
-    # this loop lasts forever, ctrl-c to exit it
+if __name__ == "__main__":
+    main()
