@@ -21,7 +21,10 @@ export const create = internalMutation({
         v.literal("markdownEmbeddings")
       ),
       success: v.boolean(),
-      data: v.any(),
+      data: v.object({
+        message: v.optional(v.string()),
+        error: v.optional(v.string()),
+      }),
     })),
   },
   handler: async (ctx, args) => {
@@ -35,7 +38,10 @@ export const create = internalMutation({
 export const logSync = internalMutation({
   args: {
     success: v.boolean(),
-    data: v.any(),
+    data: v.object({
+      message: v.optional(v.string()),
+      error: v.optional(v.string()),
+    }),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("operations", {

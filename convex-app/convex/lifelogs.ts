@@ -3,8 +3,6 @@ import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 
-const EXPERIMENTAL_FETCH_LIMIT = 1;
-
 // Define types
 type ContentNode = {
   type: "heading1" | "heading2" | "heading3" | "blockquote";
@@ -96,8 +94,7 @@ export const deleteAll = internalMutation({
       table: "lifelogs",
       success: true,
       data: {
-        count: lifelogs.length,
-        reason: "deleteAll"
+        message: `Deleted all ${lifelogs.length} lifelogs`
       }
     });
     
@@ -145,8 +142,7 @@ export const deleteDuplicates = internalMutation({
         table: "lifelogs",
         success: true,
         data: {
-          count: duplicatesToDelete.length,
-          reason: "duplicates"
+          message: `Deleted ${duplicatesToDelete.length} duplicates`
         }
       });
     }
