@@ -13,12 +13,19 @@ export const create = internalMutation({
     const lifelogIds: string[] = [];
     
     for (const lifelog of args.lifelogs) {
-      // Insert an embedding for the lifelog only if markdown exists
-      const embeddingId = lifelog.markdown === null ? null : await ctx.db.insert("markdownEmbeddings", {
-        lifelogId: lifelog.lifelogId,
-        markdown: lifelog.markdown,
-        embedding: undefined,
-      });
+      // Handle embedding logic:
+      // 1. If an embeddingId is already provided in the lifelog, use it
+      // 2. If no embeddingId but markdown exists, create a new embedding
+      // 3. If no markdown, set embeddingId to null
+      const embeddingId = lifelog.embeddingId 
+        ? lifelog.embeddingId 
+        : (lifelog.markdown === null 
+            ? null 
+            : await ctx.db.insert("markdownEmbeddings", {
+                lifelogId: lifelog.lifelogId,
+                markdown: lifelog.markdown,
+                embedding: undefined,
+              }));
 
       // Insert each lifelog to the database
       await ctx.db.insert("lifelogs", {

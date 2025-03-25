@@ -71,6 +71,12 @@ export type LifelogNode = {
     lifelogIds: v.array(v.string()),
   })
 
+  export const markdownEmbeddingDoc = v.object({
+    markdown: v.string(),
+    embedding: v.array(v.number()),
+    lifelogId: v.string(),
+  })
+
   
   /**
  * Converts lifelogs from API format to Convex database format.
