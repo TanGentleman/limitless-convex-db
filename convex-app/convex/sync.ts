@@ -45,18 +45,43 @@ export const syncLimitless = internalAction({
                 await ctx.runMutation(internal.operations.create, {
                     operations: operations,
                 });
-                return null;
+                return false;
             }
         }
         const metadata = metaList[0];
-        console.log(`Metadata: ${JSON.stringify(metadata)}`);
+        console.log(`Metadata: ${metadata.lifelogIds.length} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? new Date(metadata.syncedUntil).toISOString() : "N/A"}`);
+        
+        // First try simpleSync
+        const refreshNeeded = await isRefreshNeeded(
+            metadata.lifelogIds,
+        );
+        console.log(`Refresh needed: ${refreshNeeded}`);
+        if (!refreshNeeded) {
+            // Optional: Schedule the next sync in 30 minutes
+            // await ctx.scheduler.runAfter(1800000, internal.sync.syncLimitless, {});
+            
+            // Log successful operation
+            operations.push({
+                operation: "sync",
+                table: "metadata",
+                success: true,
+                data: {
+                    message: "No changes needed, sync completed successfully.",
+                }
+            });
+            
+            await ctx.runMutation(internal.operations.create, {
+                operations: operations,
+            });
+            return false;
+        }
         
         // 2. Fetch lifelogs from Limitless API
-        const lifelogs = await fetchLifelogs(
-            {
-                start: metadata.startTime === 0 ? undefined : new Date(metadata.startTime).toISOString(),
-            }
-        );
+        const lifelogRequest: LifelogRequest = {
+            start: metadata.startTime === 0 ? undefined : new Date(metadata.syncedUntil).toISOString(),
+        }
+        const lifelogs = await fetchLifelogs(lifelogRequest, metadata.lifelogIds);
+
         if (lifelogs.length === 0) {
             operations.push({
                 operation: "sync",
@@ -69,7 +94,7 @@ export const syncLimitless = internalAction({
             await ctx.runMutation(internal.operations.create, {
                 operations: operations,
             });
-            return null;
+            return false;
         }
         // 3. Remove duplicates from metadata
         let newLifelogs: LifelogNode[] = [];
@@ -90,7 +115,7 @@ export const syncLimitless = internalAction({
             await ctx.runMutation(internal.operations.create, {
                 operations: operations,
             });
-            return null;
+            return false;
         } else {
             console.log(`Found ${newLifelogs.length} new lifelogs to add.`);
         }
@@ -126,7 +151,7 @@ export const syncLimitless = internalAction({
                     startTime: metadata.startTime === 0 ? convexLifelogs[0].startTime : metadata.startTime,
                     endTime: convexLifelogs[convexLifelogs.length - 1].endTime,
                     lifelogIds: metadata.lifelogIds.concat(lifelogIds),
-                    syncedUntil: convexLifelogs[convexLifelogs.length - 1].endTime
+                    syncedUntil: Math.max(metadata.syncedUntil, convexLifelogs[convexLifelogs.length - 1].endTime)
                     // NOTE: If we ever need to sync in descending order, we should ensure this isn't backwards
                 }
             });
@@ -145,11 +170,51 @@ export const syncLimitless = internalAction({
         await ctx.runMutation(internal.operations.create, {
             operations: operations,
         });
+        console.log(`Sync completed with ${operations.length} operations`);
+        return true;
     },
 });
 
+/**
+ * Checks if a refresh is needed by fetching the latest lifelog from Limitless API
+ * and comparing with existing IDs in the database.
+ * 
+ * @param existingIds - Array of existing lifelog IDs already stored in the database
+ * @returns Promise resolving to:
+ *   - true: if new lifelogs are available for syncing
+ *   - false: if no new lifelogs are available
+ *   - null: if an error occurred during the check
+ */
+async function isRefreshNeeded(existingIds: string[]): Promise<boolean | null> {
+    try {
+        // If we have no existing lifelogs, we definitely need a refresh
+        if (existingIds.length === 0) {
+            console.log("No existing lifelogs found! Refresh needed.");
+            return true;
+        }
+        
+        // Fetch only the most recent lifelog for efficiency
+        const lifelogs = await fetchLifelogs({
+            limit: 1,
+            direction: "desc", // Get the newest one
+            include_markdown: false, // Skip content for faster response
+            include_headings: false, // Skip headings for faster response
+        });
+        
+        // If no lifelogs returned, no refresh needed
+        if (lifelogs.length === 0) return false;
+        
+        // Check if the latest lifelog is already in our database
+        return !existingIds.includes(lifelogs[0].id);
+    } catch (error) {
+        console.error("Error checking for refresh.:", error);
+        // On error, assume no refresh is needed to prevent potential issues
+        return null;
+    }
+}
+
 // Helper function to fetch lifelogs from the Limitless API
-async function fetchLifelogs(args: LifelogRequest) {
+async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[] = []) {
     const API_KEY = process.env.LIMITLESS_API_KEY;
     if (!API_KEY) {
         console.log('No api key.')
@@ -172,10 +237,11 @@ async function fetchLifelogs(args: LifelogRequest) {
             include_markdown: args.include_markdown === false ? false : true,
             include_headings: args.include_headings === false ? false : true,
             direction: args.direction || defaultDirection,
-            timezone: args.timezone || process.env.TIMEZONE
+            timezone: args.timezone || process.env.TIMEZONE || "UTC"
+            // Default timezone is UTC
         };
-        // Add start only if it's not null
-        if (args.start) {
+        // Add start if provided
+        if (args.start !== undefined) {
             params.start = args.start;
         }
         // Add cursor for pagination if we have one
@@ -183,7 +249,7 @@ async function fetchLifelogs(args: LifelogRequest) {
             params.cursor = cursor;
         }
         
-        console.log(`Fetching lifelogs with params: ${JSON.stringify(params)}`);
+        // console.log(`API Request Params: ${JSON.stringify(params)}`);
         
         // Convert params to URL query string
         const queryParams = new URLSearchParams();
@@ -195,6 +261,7 @@ async function fetchLifelogs(args: LifelogRequest) {
         
         try {
             const url = `https://api.limitless.ai/v1/lifelogs?${queryParams.toString()}`;
+            console.log(`API Request: ${url}`);
             const response = await fetch(url, {
                 headers: {
                     "X-API-Key": API_KEY
@@ -208,10 +275,20 @@ async function fetchLifelogs(args: LifelogRequest) {
             
             const data = await response.json();
             const lifelogs: LifelogNode[] = data.data?.lifelogs || [];
-            
+
+            if (lifelogs.length === 0) {
+                console.log(`No lifelogs found in this batch.`);
+                break;
+            }
+            // If existingIds is provided, check if the last lifelog is a duplicate
+            if (optionalExistingIds) {
+              const lastLifelog = lifelogs[lifelogs.length - 1];
+              if (optionalExistingIds.includes(lastLifelog.id)) {
+                console.log(`Dupe! End time: ${lastLifelog.endTime ? new Date(lastLifelog.endTime).toISOString() : "N/A"}`);
+              }
+            }
             // Add lifelogs from this batch
             allLifelogs.push(...lifelogs);
-            
             // Check if we've reached the requested limit
             if (limit && allLifelogs.length >= limit) {
                 return allLifelogs.slice(0, limit);
