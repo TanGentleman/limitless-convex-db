@@ -1,6 +1,6 @@
 # Python Integration with Convex
 
-You can use public functions to interact with the Convex backend. The main.py file uses a `sync` function at `convex-app/extras/hooks.ts` to sync the Limitless API to Convex.
+You can interact with the Convex backend using public functions. For instance, the `main.py` file utilizes the `sync` function from `convex-app/extras/hooks.ts` to keep up to date with the Limitless API.
 
 ## Prerequisites
 
