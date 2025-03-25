@@ -1,12 +1,12 @@
 # Python Integration with Convex
 
-This folder contains Python code to interact with the Convex backend.
+You can use public functions to interact with the Convex backend. The main.py file uses a `sync` function at `convex-app/extras/hooks.ts` to sync the Limitless API to Convex.
 
 ## Prerequisites
 
 Before you begin, ensure you have:
 
-- Python 3.9+ installed
+- Python 3.8+ installed
 - A Convex project set up and deployed
 - Your Convex deployment URL (follow steps in convex-app/README.md)
 
@@ -51,6 +51,3 @@ Execute the main script:
 ```bash
 python main.py
 ```
-
-This will connect to the Convex backend and execute a sync to the Limitless API.
-

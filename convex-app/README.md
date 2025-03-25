@@ -1,6 +1,12 @@
 # Convex Integration with Limitless API
 
-This project provides a Convex backend integration for managing data from the Limitless API.
+You can port data easily from the Limitless pendant to a Convex database. All you need is a Limitless API key to start.
+
+Advantages:
+- Schedule syncs
+- Full lifelog management (It's your data after all)
+- Type safety that plays nice with your existing software stack
+- Queries scale beautifully, and Convex can be self-hosted
 
 ## Quick Start
 
@@ -19,26 +25,27 @@ This project provides a Convex backend integration for managing data from the Li
    npm run dev
    ```
 
-4. Obtain your Convex deployment URL from the console output. It will look like:
+4. Obtain your Convex deployment URL from the console output:
    ```
    https://your-deployment.convex.cloud
    ```
 
-5. Create a `.env` file and paste these values into the Convex Dashboard:
-   ```
-   LIMITLESS_API_KEY=your_limitless_api_key
-   TIMEZONE=your_IANA_timezone
-   ```
+5. Set environment variables (This is important!):
+   - Via [Convex Dashboard](https://dashboard.convex.dev/): Add `LIMITLESS_API_KEY` and `TIMEZONE`
+   - Or via CLI:
+     ```bash
+     npx convex env set LIMITLESS_API_KEY=your_limitless_api_key
+     npx convex env set TIMEZONE=your_IANA_timezone
+     ```
 
-6. (Optional) If using Python integration, follow the setup instructions in `python-src/README.md`
-
-## Features
-
-- Sync Limitless API data to Convex
-- Manage and query lifelog data
-- Python integration for automated syncs
+6. (Optional) For Python integration, see `python-src/README.md`
 
 ## Requirements
 
 - Limitless API key
-- Convex Deployment URL from Convex
+- Convex Deployment URL
+
+## License
+
+MIT licensed. Have fun!
+
