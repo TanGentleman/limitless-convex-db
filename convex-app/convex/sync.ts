@@ -23,11 +23,27 @@ const defaultTotalLimit = 50;
 const defaultBatchSize = 10;
 const defaultDirection = "asc";
 
-// TODO: Add tracking of operations and insert into operations table
+/**
+ * Synchronizes lifelogs from Limitless API to the Convex database.
+ * 
+ * This action performs the following steps:
+ * 1. Retrieves metadata about previously synced lifelogs
+ * 2. Checks if new lifelogs are available
+ * 3. Fetches new lifelogs from the Limitless API
+ * 4. Filters out duplicates
+ * 5. Converts and stores new lifelogs in the database
+ * 6. Updates metadata with new sync information
+ * 7. Records operations for logging purposes
+ * 
+ * @returns Promise resolving to:
+ *   - true: if sync was performed and new lifelogs were added
+ *   - false: if sync was not needed or encountered an error
+ */
 export const syncLimitless = internalAction({
     handler: async (ctx) => {
         let operations: any[] = [];
-        // 1. Call internal.metadata.readLatest to get meta
+        
+        // 1. Retrieve metadata about previously synced lifelogs
         const metaList = await ctx.runQuery(internal.metadata.readLatest);
         if (metaList.length === 0) {
             console.log("No metadata found, creating default");
@@ -51,10 +67,8 @@ export const syncLimitless = internalAction({
         const metadata = metaList[0];
         console.log(`Metadata: ${metadata.lifelogIds.length} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? new Date(metadata.syncedUntil).toISOString() : "N/A"}`);
         
-        // First try simpleSync
-        const refreshNeeded = await isRefreshNeeded(
-            metadata.lifelogIds,
-        );
+        // 2. Check if new lifelogs are available
+        const refreshNeeded = await isRefreshNeeded(metadata.lifelogIds);
         console.log(`Refresh needed: ${refreshNeeded}`);
         if (!refreshNeeded) {
             // Optional: Schedule the next sync in 30 minutes
@@ -76,7 +90,7 @@ export const syncLimitless = internalAction({
             return false;
         }
         
-        // 2. Fetch lifelogs from Limitless API
+        // 3. Fetch lifelogs from Limitless API
         const lifelogRequest: LifelogRequest = {
             start: metadata.startTime === 0 ? undefined : new Date(metadata.syncedUntil).toISOString(),
         }
@@ -96,13 +110,10 @@ export const syncLimitless = internalAction({
             });
             return false;
         }
-        // 3. Remove duplicates from metadata
-        let newLifelogs: LifelogNode[] = [];
-        for (const log of lifelogs) {
-            if (!metadata.lifelogIds.includes(log.id)) {
-                newLifelogs.push(log);
-            }
-        }
+        
+        // 4. Filter out duplicates
+        const newLifelogs = filterDuplicateLifelogs(lifelogs, metadata.lifelogIds);
+        
         if (newLifelogs.length === 0) {
             operations.push({
                 operation: "sync",
@@ -120,31 +131,13 @@ export const syncLimitless = internalAction({
             console.log(`Found ${newLifelogs.length} new lifelogs to add.`);
         }
         
-        // 4. Convert lifelogs to Convex format
-        const convexLifelogs = newLifelogs.map(log => {
-            if (!log.startTime || !log.endTime) {
-                throw new Error(`Lifelog ${log.id} is missing required time fields`);
-            }
-            
-            return {
-                id: log.id,
-                title: log.title,
-                markdown: log.markdown,
-                contents: log.contents.map(content => ({
-                    type: content.type,
-                    content: content.content,
-                    startTime: content.startTime ? new Date(content.startTime).getTime() : undefined,
-                    endTime: content.endTime ? new Date(content.endTime).getTime() : undefined,
-                })),
-                startTime: new Date(log.startTime).getTime(),
-                endTime: new Date(log.endTime).getTime(),
-            };
-        });
+        // 5. Convert lifelogs to Convex format and store them
+        const convexLifelogs = convertToConvexFormat(newLifelogs);
         const lifelogIds = await ctx.runMutation(internal.lifelogs.create, {
             lifelogs: convexLifelogs
         });
         
-        // 5. Update metadata table
+        // 6. Update metadata table
         if (lifelogs.length > 0) {
             await ctx.runMutation(internal.metadata.create, {
                 meta: {
@@ -157,7 +150,7 @@ export const syncLimitless = internalAction({
             });
         }
         
-        // 6. Report operations to the operations table
+        // 7. Record operations for logging
         operations.push({
             operation: "sync",
             table: "metadata",
@@ -213,7 +206,52 @@ async function isRefreshNeeded(existingIds: string[]): Promise<boolean | null> {
     }
 }
 
-// Helper function to fetch lifelogs from the Limitless API
+/**
+ * Filters out duplicate lifelogs that already exist in the database.
+ * 
+ * @param lifelogs - Array of lifelogs to filter
+ * @param existingIds - Array of existing lifelog IDs already stored in the database
+ * @returns Array of lifelogs that don't exist in the database yet
+ */
+function filterDuplicateLifelogs(lifelogs: LifelogNode[], existingIds: string[]): LifelogNode[] {
+    return lifelogs.filter(log => !existingIds.includes(log.id));
+}
+
+/**
+ * Converts lifelogs from the API format to the Convex database format.
+ * 
+ * @param lifelogs - Array of lifelogs from the API
+ * @returns Array of lifelogs in Convex format
+ */
+function convertToConvexFormat(lifelogs: LifelogNode[]) {
+    return lifelogs.map(log => {
+        if (!log.startTime || !log.endTime) {
+            throw new Error(`Lifelog ${log.id} is missing required time fields`);
+        }
+        
+        return {
+            id: log.id,
+            title: log.title,
+            markdown: log.markdown,
+            contents: log.contents.map(content => ({
+                type: content.type,
+                content: content.content,
+                startTime: content.startTime ? new Date(content.startTime).getTime() : undefined,
+                endTime: content.endTime ? new Date(content.endTime).getTime() : undefined,
+            })),
+            startTime: new Date(log.startTime).getTime(),
+            endTime: new Date(log.endTime).getTime(),
+        };
+    });
+}
+
+/**
+ * Fetches lifelogs from the Limitless API with pagination support.
+ * 
+ * @param args - Request parameters for the Limitless API
+ * @param optionalExistingIds - Optional array of existing lifelog IDs for duplicate detection
+ * @returns Promise resolving to an array of lifelogs from the API
+ */
 async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[] = []) {
     const API_KEY = process.env.LIMITLESS_API_KEY;
     if (!API_KEY) {
@@ -248,8 +286,6 @@ async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[]
         if (cursor) {
             params.cursor = cursor;
         }
-        
-        // console.log(`API Request Params: ${JSON.stringify(params)}`);
         
         // Convert params to URL query string
         const queryParams = new URLSearchParams();
