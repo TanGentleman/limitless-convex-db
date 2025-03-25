@@ -37,8 +37,9 @@ You can port data easily from the Limitless pendant to a Convex database. All yo
    - Or via CLI:
      ```bash
      npx convex env set LIMITLESS_API_KEY=your_limitless_api_key
-     npx convex env set TIMEZONE=your_IANA_timezone
+     npx convex env set TIMEZONE=your_timezone
      ```
+     For the `TIMEZONE` variable, use an IANA timezone name, such as `America/Los_Angeles`.
 
 6. For Python integration:
    ```bash
