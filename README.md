@@ -1,3 +1,16 @@
+# Limitless Pendant + Convex = 🔥
+
+Welcome! This repository showcases how to use Convex as a database and backend for the Limitless Pendant.
+- It's your personal data, so you can also self-host it :D
+- Reference implementations in TypeScript and Python for building on top of your apps
+
+Check out `convex-app/README.md` to get set up.
+
+Feel free to use this repo as a starting point, create an issue, or message me directly! --`Tan`
+
+---
+
+**Note:** The content below remains unchanged from the upstream repository.
   <h1>
     <img src="assets/limitless-logo.svg" alt="API Icon" width="32" height="32">
     Limitless Developer API: Code Examples
