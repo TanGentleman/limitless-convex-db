@@ -1,6 +1,5 @@
-import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalAction, } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import { LifelogNode } from "./lifelogs";
 
 /**
@@ -8,15 +7,15 @@ import { LifelogNode } from "./lifelogs";
  * Matches the Limitless API query parameters.
  */
 export type LifelogRequest = {
-  timezone?: string;      // IANA timezone specifier. If missing, UTC is used
+  timezone?: string;      // IANA timezone specifier. Default: UTC
   date?: string;          // Format: YYYY-MM-DD
-  start?: string;         // Modified ISO-8601 format (YYYY-MM-DD or YYYY-MM-DD HH:mm:SS)
-  end?: string;           // Modified ISO-8601 format (YYYY-MM-DD or YYYY-MM-DD HH:mm:SS)
+  start?: string;         // ISO-8601 format (YYYY-MM-DD or YYYY-MM-DD HH:mm:SS)
+  end?: string;           // ISO-8601 format (YYYY-MM-DD or YYYY-MM-DD HH:mm:SS)
   cursor?: string;        // Cursor for pagination
-  direction?: "asc" | "desc"; // Sort direction: "asc" or "desc", default "desc"
-  include_markdown?: boolean; // Whether to include markdown content, default true
-  include_headings?: boolean; // Whether to include headings, default true
-  limit?: number;         // Maximum number of entries to return
+  direction?: "asc" | "desc"; // Sort direction. Default: "desc"
+  include_markdown?: boolean; // Include markdown content. Default: true
+  include_headings?: boolean; // Include headings. Default: true
+  limit?: number;         // Maximum entries to return
 }
 
 const defaultTotalLimit = 50;
@@ -26,18 +25,10 @@ const defaultDirection = "asc";
 /**
  * Synchronizes lifelogs from Limitless API to the Convex database.
  * 
- * This action performs the following steps:
- * 1. Retrieves metadata about previously synced lifelogs
- * 2. Checks if new lifelogs are available
- * 3. Fetches new lifelogs from the Limitless API
- * 4. Filters out duplicates
- * 5. Converts and stores new lifelogs in the database
- * 6. Updates metadata with new sync information
- * 7. Records operations for logging purposes
+ * Fetches new lifelogs, filters duplicates, and stores them in the database.
+ * Updates metadata with sync information and logs operations.
  * 
- * @returns Promise resolving to:
- *   - true: if sync was performed and new lifelogs were added
- *   - false: if sync was not needed or encountered an error
+ * @returns Promise<boolean> - true if new lifelogs were added, false otherwise
  */
 export const syncLimitless = internalAction({
     handler: async (ctx) => {
@@ -169,14 +160,10 @@ export const syncLimitless = internalAction({
 });
 
 /**
- * Checks if a refresh is needed by fetching the latest lifelog from Limitless API
- * and comparing with existing IDs in the database.
+ * Checks if a refresh is needed by comparing latest lifelog with existing IDs.
  * 
- * @param existingIds - Array of existing lifelog IDs already stored in the database
- * @returns Promise resolving to:
- *   - true: if new lifelogs are available for syncing
- *   - false: if no new lifelogs are available
- *   - null: if an error occurred during the check
+ * @param existingIds - Array of existing lifelog IDs
+ * @returns Promise<boolean|null> - true if new lifelogs available, false if not, null on error
  */
 async function isRefreshNeeded(existingIds: string[]): Promise<boolean | null> {
     try {
@@ -210,15 +197,15 @@ async function isRefreshNeeded(existingIds: string[]): Promise<boolean | null> {
  * Filters out duplicate lifelogs that already exist in the database.
  * 
  * @param lifelogs - Array of lifelogs to filter
- * @param existingIds - Array of existing lifelog IDs already stored in the database
- * @returns Array of lifelogs that don't exist in the database yet
+ * @param existingIds - Array of existing lifelog IDs
+ * @returns Array of new lifelogs
  */
 function filterDuplicateLifelogs(lifelogs: LifelogNode[], existingIds: string[]): LifelogNode[] {
     return lifelogs.filter(log => !existingIds.includes(log.id));
 }
 
 /**
- * Converts lifelogs from the API format to the Convex database format.
+ * Converts lifelogs from API format to Convex database format.
  * 
  * @param lifelogs - Array of lifelogs from the API
  * @returns Array of lifelogs in Convex format
@@ -248,9 +235,9 @@ function convertToConvexFormat(lifelogs: LifelogNode[]) {
 /**
  * Fetches lifelogs from the Limitless API with pagination support.
  * 
- * @param args - Request parameters for the Limitless API
- * @param optionalExistingIds - Optional array of existing lifelog IDs for duplicate detection
- * @returns Promise resolving to an array of lifelogs from the API
+ * @param args - Request parameters for the API
+ * @param optionalExistingIds - Optional array of existing IDs for duplicate detection
+ * @returns Promise<LifelogNode[]> - Array of lifelogs from the API
  */
 async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[] = []) {
     const API_KEY = process.env.LIMITLESS_API_KEY;
@@ -276,13 +263,12 @@ async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[]
             include_headings: args.include_headings === false ? false : true,
             direction: args.direction || defaultDirection,
             timezone: args.timezone || process.env.TIMEZONE || "UTC"
-            // Default timezone is UTC
         };
-        // Add start if provided
+        
         if (args.start !== undefined) {
             params.start = args.start;
         }
-        // Add cursor for pagination if we have one
+        
         if (cursor) {
             params.cursor = cursor;
         }
@@ -316,15 +302,18 @@ async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[]
                 console.log(`No lifelogs found in this batch.`);
                 break;
             }
-            // If existingIds is provided, check if the last lifelog is a duplicate
+            
+            // Check if the last lifelog is a duplicate
             if (optionalExistingIds) {
               const lastLifelog = lifelogs[lifelogs.length - 1];
               if (optionalExistingIds.includes(lastLifelog.id)) {
                 console.log(`Dupe! End time: ${lastLifelog.endTime ? new Date(lastLifelog.endTime).toISOString() : "N/A"}`);
               }
             }
+            
             // Add lifelogs from this batch
             allLifelogs.push(...lifelogs);
+            
             // Check if we've reached the requested limit
             if (limit && allLifelogs.length >= limit) {
                 return allLifelogs.slice(0, limit);
@@ -348,13 +337,3 @@ async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[]
     
     return allLifelogs;
 }
-
-// // Helper function to dedupe lifelogs
-// async function dedupeLifelogs(ctx: any, lifelogs: any[]) {
-//     // Get existing lifelog IDs from database
-//     const existingIds = await ctx.runQuery(internal.lifelogs.getAllIds);
-//     const existingIdSet = new Set(existingIds);
-    
-//     // Filter out duplicates/
-//     return lifelogs.filter(log => !existingIdSet.has(log.id));
-// }
