@@ -23,7 +23,7 @@ export type LifelogNode = {
   contents: ContentNode[];
 };
 
-  export const lifelogDoc = v.object({
+  export const lifelogsDoc = v.object({
     lifelogId: v.string(),
     title: v.string(),
     markdown: v.union(v.string(), v.null()),
@@ -44,25 +44,32 @@ export type LifelogNode = {
   })
 
 
-  export const operationObject = v.array(v.object({
-      operation: v.union(
-        v.literal("sync"), 
-        v.literal("create"), 
-        v.literal("read"), 
-        v.literal("update"), 
-        v.literal("delete")
-      ),
-      table: v.union(
-        v.literal("lifelogs"), 
-        v.literal("metadata"), 
-        v.literal("markdownEmbeddings")
-      ),
-      success: v.boolean(),
-      data: v.object({
-        message: v.optional(v.string()),
-        error: v.optional(v.string()),
-      }),
-    }))
+  export const operationsDoc = v.object({
+    operation: v.union(
+      v.literal("sync"), 
+      v.literal("create"), 
+      v.literal("read"), 
+      v.literal("update"), 
+      v.literal("delete")
+    ),
+    table: v.union(
+      v.literal("lifelogs"), 
+      v.literal("metadata"), 
+      v.literal("markdownEmbeddings")
+    ),
+    success: v.boolean(),
+    data: v.object({
+      message: v.optional(v.string()),
+      error: v.optional(v.string()),
+    }),
+  })
+
+  export const metadataDoc = v.object({
+    startTime: v.number(),
+    endTime: v.number(),
+    syncedUntil: v.number(),
+    lifelogIds: v.array(v.string()),
+  })
 
   
   /**

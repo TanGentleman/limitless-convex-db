@@ -2,12 +2,12 @@
 import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
-import { lifelogDoc } from "./types";
+import { lifelogsDoc } from "./types";
 
 // CREATE
 export const create = internalMutation({
   args: {
-    lifelogs: v.array(lifelogDoc),
+    lifelogs: v.array(lifelogsDoc),
   },
   handler: async (ctx, args) => {
     const lifelogIds: string[] = [];
