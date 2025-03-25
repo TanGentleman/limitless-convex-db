@@ -1,6 +1,6 @@
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import { LifelogNode } from "./lifelogs";
+import { LifelogNode, convertToConvexFormat } from "./types";
 
 /**
  * Request parameters for retrieving lifelogs.
@@ -147,8 +147,7 @@ export const syncLimitless = internalAction({
             table: "metadata",
             success: true,
             data: {
-                lifelogsProcessed: lifelogs.length,
-                lifelogsAdded: lifelogIds.length
+                message: `Synced ${lifelogs.length} lifelogs, added ${lifelogIds.length} new lifelogs`,
             },
         });
         await ctx.runMutation(internal.operations.create, {
@@ -204,33 +203,6 @@ function filterDuplicateLifelogs(lifelogs: LifelogNode[], existingIds: string[])
     return lifelogs.filter(log => !existingIds.includes(log.id));
 }
 
-/**
- * Converts lifelogs from API format to Convex database format.
- * 
- * @param lifelogs - Array of lifelogs from the API
- * @returns Array of lifelogs in Convex format
- */
-function convertToConvexFormat(lifelogs: LifelogNode[]) {
-    return lifelogs.map(log => {
-        if (!log.startTime || !log.endTime) {
-            throw new Error(`Lifelog ${log.id} is missing required time fields`);
-        }
-        
-        return {
-            id: log.id,
-            title: log.title,
-            markdown: log.markdown,
-            contents: log.contents.map(content => ({
-                type: content.type,
-                content: content.content,
-                startTime: content.startTime ? new Date(content.startTime).getTime() : undefined,
-                endTime: content.endTime ? new Date(content.endTime).getTime() : undefined,
-            })),
-            startTime: new Date(log.startTime).getTime(),
-            endTime: new Date(log.endTime).getTime(),
-        };
-    });
-}
 
 /**
  * Fetches lifelogs from the Limitless API with pagination support.
