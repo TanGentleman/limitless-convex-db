@@ -23,7 +23,7 @@ export type LifelogNode = {
   contents: ContentNode[];
 };
 
-  export const lifelogObject = v.object({
+  export const lifelogDoc = v.object({
     lifelogId: v.string(),
     title: v.string(),
     markdown: v.union(v.string(), v.null()),

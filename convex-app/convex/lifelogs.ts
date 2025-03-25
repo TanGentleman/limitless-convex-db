@@ -2,13 +2,12 @@
 import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
-import { lifelogObject } from "./types";
+import { lifelogDoc } from "./types";
 
 // CREATE
-// Add new lifelogs (Assume these have been de-duped from lifelog_ids in the meta table)
 export const create = internalMutation({
   args: {
-    lifelogs: v.array(lifelogObject),
+    lifelogs: v.array(lifelogDoc),
   },
   handler: async (ctx, args) => {
     const lifelogIds: string[] = [];
