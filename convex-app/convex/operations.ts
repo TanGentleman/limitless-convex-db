@@ -16,37 +16,33 @@ export const create = internalMutation({
   },
 });
 
-// Helper functions for common operations
-export const logSync = internalMutation({
-  args: {
-    success: v.boolean(),
-    data: v.object({
-      message: v.optional(v.string()),
-      error: v.optional(v.string()),
-    }),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db.insert("operations", {
-      operation: "sync",
-      table: "lifelogs",
-      success: args.success,
-      data: args.data,
-    });
-  },
-});
-
 // READ
 // Get recent operation logs
-export const getRecentLogs = internalQuery({
+export const readAll = internalQuery({
   args: {
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    return await ctx.db
+    const queryBatch = await ctx.db
       .query("operations")
       .order("desc")
-      .take(limit);
+    if (args.limit === undefined) {
+      return queryBatch.collect();
+    } else {
+      return queryBatch.take(args.limit);
+    }
+  },
+});
+
+// UPDATE
+// Update an operation
+export const update = internalMutation({
+  args: {
+    id: v.id("operations"),
+    operation: operationsDoc,
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, args.operation);
   },
 });
 
