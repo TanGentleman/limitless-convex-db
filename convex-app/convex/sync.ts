@@ -1,6 +1,7 @@
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { LifelogNode, convertToConvexFormat } from "./types";
+import { formatDate } from "./extras/utils";
 
 /**
  * Request parameters for retrieving lifelogs.
@@ -56,7 +57,7 @@ export const syncLimitless = internalAction({
             }
         }
         const metadata = metaList[0];
-        console.log(`Metadata: ${metadata.lifelogIds.length} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? new Date(metadata.syncedUntil).toISOString() : "N/A"}`);
+        console.log(`Metadata: ${metadata.lifelogIds.length} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? formatDate(metadata.syncedUntil) : "N/A"}`);
         
         // 2. Check if new lifelogs are available
         const refreshNeeded = await isRefreshNeeded(metadata.lifelogIds);
@@ -279,7 +280,7 @@ async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[]
             if (optionalExistingIds) {
               const lastLifelog = lifelogs[lifelogs.length - 1];
               if (optionalExistingIds.includes(lastLifelog.id)) {
-                console.log(`Dupe! End time: ${lastLifelog.endTime ? new Date(lastLifelog.endTime).toISOString() : "N/A"}`);
+                console.log(`Dupe! End time: ${lastLifelog.endTime ? formatDate(lastLifelog.endTime) : "N/A"}`);
               }
             }
             
