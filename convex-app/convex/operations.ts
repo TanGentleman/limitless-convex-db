@@ -5,7 +5,7 @@ import { operationsDoc } from "./types";
 
 // CREATE
 // Log a new operation
-export const create = internalMutation({
+export const createDocs = internalMutation({
   args: {
     operations: v.array(operationsDoc),
   },

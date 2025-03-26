@@ -25,18 +25,16 @@ const createOperation = (
   table: "lifelogs" | "metadata" | "markdownEmbeddings",
   success: boolean,
   data: { message?: string; error?: string }
-) => {
-  return {
-    operation,
-    table,
-    success,
-    data
-  };
-};
+) => ({
+  operation,
+  table,
+  success,
+  data: !success && !data.error && data.message ? { error: data.message } : data
+});
 
 // Simplified metadata operation creator
 export const metadataOperation = (
-  operation: "create" | "update" | "delete",
+  operation: "create" | "update" | "delete" | "sync",
   message: string,
   success: boolean = true,
 ) => {
