@@ -4,6 +4,7 @@ import { IncomingWebhook } from '@slack/webhook';
 import { action, internalAction } from "../_generated/server";
 import { internal } from '../_generated/api';
 import { v } from 'convex/values';
+import { formatDate } from './utils';
 
 export const sendSlackNotification = internalAction({
   handler: async (ctx, args) => {
@@ -13,7 +14,7 @@ export const sendSlackNotification = internalAction({
     }
     const webhook = new IncomingWebhook(url);
     const [operation] = await ctx.runQuery(internal.extras.utils.getLogsByOperation, { operation: "sync", limit: 1 });
-    const timestamp = new Date(operation._creationTime).toLocaleString();
+    const timestamp = formatDate(new Date(operation._creationTime));
     const status = operation.success ? "✅ Success" : "❌ Failure";
     const details = operation.data.error || operation.data.message || "No details available";
     
