@@ -39,24 +39,30 @@ export const createDefaultMeta = internalMutation({
 });
 
 // READ
-export const readLatest = internalQuery({
-  handler: async (ctx) => {
-    return await ctx.db.query("metadata").order("desc").take(1);
-  },
-});
-
-export const read = internalQuery({
+export const readDocs = internalQuery({
   args: {
-    id: v.id("metadata"),
+    id: v.optional(v.id("metadata")),
+    latest: v.optional(v.boolean()),
+    all: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
-  },
-});
-
-export const readAll = internalQuery({
-  handler: async (ctx) => {
-    return await ctx.db.query("metadata").collect();
+    // Get by ID
+    if (args.id) {
+      return await ctx.db.get(args.id);
+    }
+    
+    // Get latest entry
+    if (args.latest) {
+      return await ctx.db.query("metadata").order("desc").take(1);
+    }
+    
+    // Get all entries
+    if (args.all) {
+      return await ctx.db.query("metadata").collect();
+    }
+    
+    // Default to latest if no args specified
+    return await ctx.db.query("metadata").order("desc").take(1);
   },
 });
 
