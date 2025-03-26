@@ -1,6 +1,6 @@
 import { internalQuery } from "../_generated/server";
 import { v } from "convex/values";
-
+import { operationsDoc } from "../types";
 const defaultLimit = 1000;
 
 // Helper functions to make timestamps human readable
@@ -18,6 +18,40 @@ export const formatDate = (date: Date | number | string, timezone?: string): str
     second: '2-digit'
   });
 };
+
+// Generic operation creation helper
+const createOperation = (
+  operation:"sync" | "create" | "read" | "update" | "delete",
+  table: "lifelogs" | "metadata" | "markdownEmbeddings",
+  success: boolean,
+  data: { message?: string; error?: string }
+) => {
+  return {
+    operation,
+    table,
+    success,
+    data
+  };
+};
+
+// Simplified metadata operation creator
+export const metadataOperation = (
+  operation: "create" | "update" | "delete",
+  message: string,
+  success: boolean = true,
+) => {
+  return createOperation(operation, "metadata", success, { message });
+};
+
+const lifelogOperation = (
+  operation: "create" | "read" | "update" | "delete",
+  message: string,
+  success: boolean = true
+) => {
+  return createOperation(operation, "lifelogs", success, { message });
+};
+
+
 
 
 // Get logs by operation type
