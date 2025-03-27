@@ -13,7 +13,7 @@ export const sendSlackNotification = internalAction({
       throw new Error('SLACK_WEBHOOK_URL is not set');
     }
     const webhook = new IncomingWebhook(url);
-    const [operation] = await ctx.runQuery(internal.extras.utils.getLogsByOperation, { operation: "sync", limit: 1 });
+    const [operation] = await ctx.runQuery(internal.extras.tests.getLogsByOperation, { operation: "sync", limit: 1 });
     const timestamp = formatDate(new Date(operation._creationTime));
     const status = operation.success ? "✅ Success" : "❌ Failure";
     const details = operation.data.error || operation.data.message || "No details available";

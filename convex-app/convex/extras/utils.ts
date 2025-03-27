@@ -1,8 +1,3 @@
-import { internalQuery } from "../_generated/server";
-import { v } from "convex/values";
-import { operationsDoc } from "../types";
-const defaultLimit = 1000;
-
 // Helper functions to make timestamps human readable
 // Use os.env.TIMEZONE to get the timezone
 // Wrapper function for date formatting
@@ -41,7 +36,7 @@ export const metadataOperation = (
   return createOperation(operation, "metadata", success, { message });
 };
 
-const lifelogOperation = (
+export const lifelogOperation = (
   operation: "create" | "read" | "update" | "delete",
   message: string,
   success: boolean = true
@@ -49,62 +44,11 @@ const lifelogOperation = (
   return createOperation(operation, "lifelogs", success, { message });
 };
 
+export const markdownEmbeddingOperation = (
+  operation: "create" | "read" | "update" | "delete",
+  message: string,
+  success: boolean = true
+) => {
+  return createOperation(operation, "markdownEmbeddings", success, { message });
+};
 
-
-
-// Get logs by operation type
-export const getLogsByOperation = internalQuery({
-    args: {
-      operation: v.union(
-        v.literal("sync"), 
-        v.literal("create"), 
-        v.literal("read"), 
-        v.literal("update"), 
-        v.literal("delete")
-      ),
-      limit: v.optional(v.number()),
-    },
-    handler: async (ctx, args) => {
-      const limit = args.limit ?? defaultLimit;
-      return await ctx.db
-        .query("operations")
-        .filter(q => q.eq(q.field("operation"), args.operation))
-        .order("desc")
-        .take(limit);
-    },
-  });
-  
-  // Get logs by table
-  export const getLogsByTable = internalQuery({
-    args: {
-      table: v.union(
-        v.literal("lifelogs"), 
-        v.literal("metadata"), 
-        v.literal("markdownEmbeddings")
-      ),
-      limit: v.optional(v.number()),
-    },
-    handler: async (ctx, args) => {
-      const limit = args.limit ?? defaultLimit;
-      return await ctx.db
-        .query("operations")
-        .filter(q => q.eq(q.field("table"), args.table))
-        .order("desc")
-        .take(limit);
-    },
-  });
-  
-  // Get failed operations
-  export const getFailedOperations = internalQuery({
-    args: {
-      limit: v.optional(v.number()),
-    },
-    handler: async (ctx, args) => {
-      const limit = args.limit ?? defaultLimit;
-      return await ctx.db
-        .query("operations")
-        .filter(q => q.eq(q.field("success"), false))
-        .order("desc")
-        .take(limit);
-    },
-  });

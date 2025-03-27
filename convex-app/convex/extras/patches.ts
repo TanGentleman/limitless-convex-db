@@ -4,9 +4,6 @@ import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
 import { Doc } from "../_generated/dataModel";
 
-// Define the tables we can patch
-type TableName = "operations" | "metadata" | "lifelogs";
-
 // Process operations logs
 function processOperationDoc(doc: Doc<"operations">): Partial<Doc<"operations">> | null {
   if (doc.data) {
