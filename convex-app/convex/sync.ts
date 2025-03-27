@@ -63,7 +63,7 @@ export const syncLimitless = internalAction({
         // Handle partial sync results
         if (newPartialLifelogs.length === 0) {
             // No new lifelogs found, sync not needed
-            const operation = metadataOperation("sync", "No changes needed, sync completed successfully.", true);
+            const operation = metadataOperation("sync", `${metadata.lifelogIds.length} lifelogs up to date.`, true);
             await ctx.runMutation(internal.operations.createDocs, {
                 operations: [operation],
             });
