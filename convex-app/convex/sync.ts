@@ -1,6 +1,6 @@
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import { LifelogNode, convertToConvexFormat, operationsDoc } from "./types";
+import { LifelogNode, convertToConvexFormat } from "./types";
 import { formatDate, metadataOperation } from "./extras/utils";
 
 /**
@@ -23,7 +23,6 @@ const defaultTotalLimit = 50;
 const defaultBatchSize = 10;
 const defaultDirection = "asc";
 
-
 /**
  * Synchronizes lifelogs from Limitless API to the Convex database.
  * 
@@ -35,10 +34,10 @@ const defaultDirection = "asc";
 export const syncLimitless = internalAction({
     handler: async (ctx) => {
         // 1. Retrieve metadata about previously synced lifelogs
-        const metaList = await ctx.runQuery(internal.metadata.readLatest);
+        const metaList = await ctx.runQuery(internal.metadata.readDocs, { latest: true });
         if (metaList.length === 0) {
             console.log("No metadata found, creating default");
-            const metaId = await ctx.runMutation(internal.metadata.createDefaultMeta);
+            const metaId = await ctx.runMutation(internal.extras.tests.createDefaultMeta);
             if (metaId === null) {
                 const operation = metadataOperation("sync", "Failed to create default metadata! Aborting sync.", false);
                 await ctx.runMutation(internal.operations.createDocs, {
