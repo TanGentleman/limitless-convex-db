@@ -18,18 +18,18 @@ export const createDocs = internalMutation({
 
 // READ
 // Get recent operation logs
-export const readAll = internalQuery({
+export const readDocs = internalQuery({
   args: {
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const queryBatch = await ctx.db
+    const queryBatch = ctx.db
       .query("operations")
       .order("desc")
     if (args.limit === undefined) {
       return queryBatch.collect();
     } else {
-      return queryBatch.take(args.limit);
+      return await queryBatch.take(args.limit);
     }
   },
 });
@@ -43,5 +43,18 @@ export const update = internalMutation({
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, args.operation);
+  },
+});
+
+// DELETE
+// Delete an operation
+export const deleteDocs = internalMutation({
+  args: {
+    ids: v.array(v.id("operations")),
+  },
+  handler: async (ctx, args) => {
+    for (const id of args.ids) {
+      await ctx.db.delete(id);
+    }
   },
 });
