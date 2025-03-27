@@ -5,7 +5,7 @@ import { operationsDoc } from "./types";
 
 // CREATE
 // Log a new operation
-export const create = internalMutation({
+export const createDocs = internalMutation({
   args: {
     operations: v.array(operationsDoc),
   },
@@ -16,93 +16,45 @@ export const create = internalMutation({
   },
 });
 
-// Helper functions for common operations
-export const logSync = internalMutation({
-  args: {
-    success: v.boolean(),
-    data: v.object({
-      message: v.optional(v.string()),
-      error: v.optional(v.string()),
-    }),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db.insert("operations", {
-      operation: "sync",
-      table: "lifelogs",
-      success: args.success,
-      data: args.data,
-    });
-  },
-});
-
 // READ
 // Get recent operation logs
-export const getRecentLogs = internalQuery({
+export const readDocs = internalQuery({
   args: {
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    return await ctx.db
+    const queryBatch = ctx.db
       .query("operations")
       .order("desc")
-      .take(limit);
+    if (args.limit === undefined) {
+      return queryBatch.collect();
+    } else {
+      return await queryBatch.take(args.limit);
+    }
   },
 });
 
-// Get logs by operation type
-export const getLogsByOperation = internalQuery({
+// UPDATE
+// Update an operation
+export const update = internalMutation({
   args: {
-    operation: v.union(
-      v.literal("sync"), 
-      v.literal("create"), 
-      v.literal("read"), 
-      v.literal("update"), 
-      v.literal("delete")
-    ),
-    limit: v.optional(v.number()),
+    id: v.id("operations"),
+    operation: operationsDoc,
   },
   handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    return await ctx.db
-      .query("operations")
-      .filter(q => q.eq(q.field("operation"), args.operation))
-      .order("desc")
-      .take(limit);
+    await ctx.db.patch(args.id, args.operation);
   },
 });
 
-// Get logs by table
-export const getLogsByTable = internalQuery({
+// DELETE
+// Delete an operation
+export const deleteDocs = internalMutation({
   args: {
-    table: v.union(
-      v.literal("lifelogs"), 
-      v.literal("metadata"), 
-      v.literal("markdownEmbeddings")
-    ),
-    limit: v.optional(v.number()),
+    ids: v.array(v.id("operations")),
   },
   handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    return await ctx.db
-      .query("operations")
-      .filter(q => q.eq(q.field("table"), args.table))
-      .order("desc")
-      .take(limit);
-  },
-});
-
-// Get failed operations
-export const getFailedOperations = internalQuery({
-  args: {
-    limit: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    return await ctx.db
-      .query("operations")
-      .filter(q => q.eq(q.field("success"), false))
-      .order("desc")
-      .take(limit);
+    for (const id of args.ids) {
+      await ctx.db.delete(id);
+    }
   },
 });

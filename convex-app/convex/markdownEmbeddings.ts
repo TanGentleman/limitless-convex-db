@@ -6,10 +6,12 @@ import { markdownEmbeddingDoc } from "./types";
 
 // CREATE
 // Store a new markdown embedding
-export const create = internalMutation({
-  args: markdownEmbeddingDoc,
+export const createDocs = internalMutation({
+  args: { docs: v.array(markdownEmbeddingDoc) },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("markdownEmbeddings", args);
+    for (const doc of args.docs) {
+      await ctx.db.insert("markdownEmbeddings", doc);
+    }
   },
 });
 
@@ -36,11 +38,12 @@ export const updateEmbedding = internalMutation({
 });
 
 // DELETE
-// Remove an embedding
-export const remove = internalMutation({
-  args: { id: v.id("markdownEmbeddings") },
+export const deleteDocs = internalMutation({
+  args: { ids: v.array(v.id("markdownEmbeddings")) },
   handler: async (ctx, args) => {
-    return await ctx.db.delete(args.id);
+    for (const id of args.ids) {
+      await ctx.db.delete(id);
+    }
   },
 });
 

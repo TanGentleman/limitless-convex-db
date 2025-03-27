@@ -22,13 +22,13 @@ export default defineSchema({
     embeddingId: v.union(v.id("markdownEmbeddings"), v.null()),
   })
   .index("by_start_time", ["startTime"])
-  .index("by_end_time", ["endTime"])
-  .index("by_time_range", ["startTime", "endTime"])
+  .index("by_lifelog_id", ["lifelogId"])
   .searchIndex("search_title_content", {
     searchField: "title",
   })
   .searchIndex("search_markdown_content", {
     searchField: "markdown",
+    filterFields: ["lifelogId"],
   }),
   
   metadata: defineTable({

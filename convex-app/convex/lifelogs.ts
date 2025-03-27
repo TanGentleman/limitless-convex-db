@@ -3,9 +3,14 @@ import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { lifelogsDoc } from "./types";
+import { internal } from "./_generated/api";
+import { lifelogOperation, markdownEmbeddingOperation } from "./extras/utils";
 
+
+const defaultDirection = "desc";
+const defaultLimit = 1000;
 // CREATE
-export const create = internalMutation({
+export const createDocs = internalMutation({
   args: {
     lifelogs: v.array(lifelogsDoc),
   },
@@ -41,29 +46,147 @@ export const create = internalMutation({
       lifelogIds.push(lifelog.lifelogId);
     }
     
+    const operation = lifelogOperation("create", `Created ${lifelogIds.length} new lifelogs`);
+    await ctx.runMutation(internal.operations.createDocs, {
+      operations: [operation],
+    });
+    
     return lifelogIds;
   },
 });
 
+// READ
+export const readDocs = internalQuery({
+  args: {
+    startTime: v.optional(v.number()),
+    endTime: v.optional(v.number()),
+    direction: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
+    includeMarkdown: v.optional(v.boolean()),
+    includeHeadings: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    // Start building the query
+    const baseQuery = ctx.db.query("lifelogs");
+    const startTime = args.startTime;
+    const endTime = args.endTime;
+    const direction = args.direction || defaultDirection;
+    const limit = args.limit || defaultLimit; // Default limit
+    
+    // Apply time range filters if provided
+    const timeFilteredQuery = startTime !== undefined 
+      ? baseQuery.withIndex("by_start_time", (q) => q.gte("startTime", startTime))
+      : baseQuery;
+    
+    // Apply sorting direction
+    const sortedQuery = timeFilteredQuery.order(direction);
+    
+    // Apply endTime filter if provided
+    const endTimeFilteredQuery = endTime !== undefined 
+      ? sortedQuery.filter(q => q.lte(q.field("endTime"), endTime))
+      : sortedQuery;
+    
+    // Get results with limit applied
+    const results = await endTimeFilteredQuery.take(limit);
+    
+    // Filter out markdown or headings if requested
+    // NOTE: Should be handled after the query is executed
+    
+    return results;
+  },
+});
+
+// UPDATE
+// Update a lifelog by its ID
+export const update = internalMutation({
+  args: {
+    id: v.id("lifelogs"),
+    lifelog: lifelogsDoc,
+  },
+  handler: async (ctx, args) => {
+    const { id, lifelog } = args;
+    
+    // Check if the lifelog exists
+    const existingLifelog = await ctx.db.get(id);
+    if (!existingLifelog) {
+      throw new Error(`Lifelog with ID ${id} not found`);
+    }
+    
+    // If markdown is updated and different from existing, create a new embedding
+    let embeddingId = lifelog.embeddingId;
+    if (lifelog.markdown !== undefined && 
+        lifelog.markdown !== null && 
+        lifelog.markdown !== existingLifelog.markdown) {
+      // Create a new embedding for the updated markdown
+      embeddingId = await ctx.db.insert("markdownEmbeddings", {
+        lifelogId: existingLifelog.lifelogId,
+        markdown: lifelog.markdown,
+        embedding: undefined,
+      });
+      if (existingLifelog.embeddingId) {
+        // console log the lifelogId to delete the old embedding
+        await ctx.runMutation(internal.markdownEmbeddings.deleteDocs, { ids: [existingLifelog.embeddingId] });
+      }
+      // add markdownEmbeddingOperation to delete the old embedding
+      const operation = markdownEmbeddingOperation("delete", `Deleted old embedding for lifelog ${existingLifelog.lifelogId}`);
+      await ctx.runMutation(internal.operations.createDocs, {
+        operations: [operation],
+      });
+    }
+    
+    // Update the lifelog with the new data
+    await ctx.db.patch(id, {
+      ...lifelog,
+      embeddingId: embeddingId || lifelog.embeddingId,
+    });
+    
+    const operation = lifelogOperation("update", `Updated lifelog ${existingLifelog.lifelogId}`);
+    await ctx.runMutation(internal.operations.createDocs, {
+      operations: [operation],
+    });
+    
+    return { id, lifelogId: existingLifelog.lifelogId };
+  },
+});
+
 // DELETE
+// Delete a lifelog by its ID
+export const deleteByLifelogId = internalMutation({
+  args: {
+    id: v.id("lifelogs"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.id);
+    
+    const operation = lifelogOperation("delete", `Deleted lifelog ${args.id}`);
+    await ctx.runMutation(internal.operations.createDocs, {
+      operations: [operation],
+    });
+    
+    return { id: args.id };
+  },
+});
+
 // Clear all lifelogs
 export const deleteAll = internalMutation({
-  handler: async (ctx) => {
+  args: {
+    destructive: v.boolean(),
+  },
+  handler: async (ctx, args) => {
     const lifelogs = await ctx.db.query("lifelogs").collect();
     
     // Delete each lifelog
     for (const lifelog of lifelogs) {
+      if (!args.destructive) {
+        console.log("NOTE: Destructive argument is false. Skipping deletion of lifelogs.");
+        break;
+      }
       await ctx.db.delete(lifelog._id);
     }
     
-    // Log the delete operation once for the entire batch
-    await ctx.db.insert("operations", {
-      operation: "delete",
-      table: "lifelogs",
-      success: true,
-      data: {
-        message: `Deleted all ${lifelogs.length} lifelogs`
-      }
+    const operation = lifelogOperation("delete", `Deleted all ${lifelogs.length} lifelogs. (destructive: ${args.destructive})`);
+    await ctx.runMutation(internal.operations.createDocs, {
+      operations: [operation],
     });
     
     return { ids: lifelogs.map((lifelog) => lifelog.lifelogId) };
@@ -103,17 +226,10 @@ export const deleteDuplicates = internalMutation({
       await ctx.db.delete(id);
     }
     
-    // Log the operation once for the entire batch deletion
-    if (duplicatesToDelete.length > 0) {
-      await ctx.db.insert("operations", {
-        operation: "delete",
-        table: "lifelogs",
-        success: true,
-        data: {
-          message: `Deleted ${duplicatesToDelete.length} duplicates`
-        }
-      });
-    }
+    const operation = lifelogOperation("delete", `Deleted ${duplicatesToDelete.length} duplicate lifelogs`);
+    await ctx.runMutation(internal.operations.createDocs, {
+      operations: [operation],
+    });
     
     return { 
       deletedCount: duplicatesToDelete.length,

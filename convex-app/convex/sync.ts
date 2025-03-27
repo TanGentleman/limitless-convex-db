@@ -1,6 +1,7 @@
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { LifelogNode, convertToConvexFormat } from "./types";
+import { formatDate, metadataOperation } from "./extras/utils";
 
 /**
  * Request parameters for retrieving lifelogs.
@@ -32,128 +33,106 @@ const defaultDirection = "asc";
  */
 export const syncLimitless = internalAction({
     handler: async (ctx) => {
-        let operations: any[] = [];
-        
         // 1. Retrieve metadata about previously synced lifelogs
-        const metaList = await ctx.runQuery(internal.metadata.readLatest);
+        const metaList = await ctx.runQuery(internal.metadata.readDocs, { latest: true });
         if (metaList.length === 0) {
             console.log("No metadata found, creating default");
-            const metaId = await ctx.runMutation(internal.metadata.createDefaultMeta);
+            const metaId = await ctx.runMutation(internal.extras.tests.createDefaultMeta);
             if (metaId === null) {
-                const operation = {
-                    operation: "sync",
-                    table: "metadata",
-                    success: false,
-                    data: {
-                        error: "Failed to create default metadata! Aborting sync.",
-                    },
-                };
-                operations.push(operation);
-                await ctx.runMutation(internal.operations.create, {
-                    operations: operations,
+                const operation = metadataOperation("sync", "Failed to create default metadata! Aborting sync.", false);
+                await ctx.runMutation(internal.operations.createDocs, {
+                    operations: [operation],
                 });
                 return false;
             }
         }
         const metadata = metaList[0];
-        console.log(`Metadata: ${metadata.lifelogIds.length} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? new Date(metadata.syncedUntil).toISOString() : "N/A"}`);
+        console.log(`Metadata: ${metadata.lifelogIds.length} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? formatDate(metadata.syncedUntil) : "N/A"}`);
         
-        // 2. Check if new lifelogs are available
-        const refreshNeeded = await isRefreshNeeded(metadata.lifelogIds);
-        console.log(`Refresh needed: ${refreshNeeded}`);
-        if (!refreshNeeded) {
-            // Optional: Schedule the next sync in 30 minutes
-            // await ctx.scheduler.runAfter(1800000, internal.sync.syncLimitless, {});
-            
-            // Log successful operation
-            operations.push({
-                operation: "sync",
-                table: "metadata",
-                success: true,
-                data: {
-                    message: "No changes needed, sync completed successfully.",
-                }
-            });
-            
-            await ctx.runMutation(internal.operations.create, {
-                operations: operations,
-            });
-            return false;
-        }
-        
-        // 3. Fetch lifelogs from Limitless API
-        const lifelogRequest: LifelogRequest = {
-            start: metadata.startTime === 0 ? undefined : new Date(metadata.syncedUntil).toISOString(),
-        }
-        const lifelogs = await fetchLifelogs(lifelogRequest, metadata.lifelogIds);
-
-        if (lifelogs.length === 0) {
-            operations.push({
-                operation: "sync",
-                table: "metadata",
-                success: false,
-                data: {
-                    error: "No lifelogs found. Aborting sync.",
-                },
-            });
-            await ctx.runMutation(internal.operations.create, {
-                operations: operations,
-            });
-            return false;
-        }
-        
-        // 4. Filter out duplicates
-        const newLifelogs = filterDuplicateLifelogs(lifelogs, metadata.lifelogIds);
-        
-        if (newLifelogs.length === 0) {
-            operations.push({
-                operation: "sync",
-                table: "metadata",
-                success: false,
-                data: {
-                    error: `All ${lifelogs.length} fetched lifelogs are duplicates.`,
-                },
-            });
-            await ctx.runMutation(internal.operations.create, {
-                operations: operations,
-            });
-            return false;
-        } else {
-            console.log(`Found ${newLifelogs.length} new lifelogs to add.`);
-        }
-        
-        // 5. Convert lifelogs to Convex format and store them
-        const convexLifelogs = convertToConvexFormat(newLifelogs);
-        const lifelogIds = await ctx.runMutation(internal.lifelogs.create, {
-            lifelogs: convexLifelogs
+        // 1.5 Try a partial sync
+        const partialLifelogs = await fetchLifelogs({
+            limit: 10,
+            direction: "desc",
+            include_markdown: false,
+            include_headings: false
         });
         
-        // 6. Update metadata table
-        if (lifelogs.length > 0) {
+        // Filter duplicates from partial sync
+        const newPartialLifelogs = filterDuplicateLifelogs(partialLifelogs, metadata.lifelogIds);
+        
+        // Handle partial sync results
+        if (newPartialLifelogs.length === 0) {
+            // No new lifelogs found, sync not needed
+            const operation = metadataOperation("sync", "No changes needed, sync completed successfully.", true);
+            await ctx.runMutation(internal.operations.createDocs, {
+                operations: [operation],
+            });
+            return false;
+        } else if (newPartialLifelogs.length < 10) {
+            // Process the partial list of new lifelogs in ascending order
+            const convexLifelogs = convertToConvexFormat(newPartialLifelogs.reverse());
+            const lifelogIds = await ctx.runMutation(internal.lifelogs.createDocs, {
+                lifelogs: convexLifelogs
+            });
+            
+            // Update metadata
+            const operation = metadataOperation("sync", `Synced ${newPartialLifelogs.length} new lifelogs`, true);
             await ctx.runMutation(internal.metadata.create, {
                 meta: {
                     startTime: metadata.startTime === 0 ? convexLifelogs[0].startTime : metadata.startTime,
                     endTime: convexLifelogs[convexLifelogs.length - 1].endTime,
                     lifelogIds: metadata.lifelogIds.concat(lifelogIds),
                     syncedUntil: Math.max(metadata.syncedUntil, convexLifelogs[convexLifelogs.length - 1].endTime)
-                    // NOTE: If we ever need to sync in descending order, we should ensure this isn't backwards
                 }
+            });
+            await ctx.runMutation(internal.operations.createDocs, {
+                operations: [operation],
+            });
+            return true;
+        }
+        
+        // If we got 10 items, proceed with full sync
+        const lifelogRequest: LifelogRequest = {
+            start: metadata.startTime === 0 ? undefined : new Date(metadata.syncedUntil).toISOString(),
+        }
+        const lifelogs = await fetchLifelogs(lifelogRequest);
+
+        // Filter duplicates from full sync
+        const newLifelogs = filterDuplicateLifelogs(lifelogs, metadata.lifelogIds);
+        
+        if (newLifelogs.length === 0) {
+            const operation = metadataOperation("sync", `All ${lifelogs.length} fetched lifelogs are duplicates.`, false);
+            await ctx.runMutation(internal.operations.createDocs, {
+                operations: [operation],
+            });
+            return false;
+        } else {
+            console.log(`Found ${newLifelogs.length} new lifelogs to add.`);
+        }
+        
+        // Convert lifelogs to Convex format and store them
+        const convexLifelogs = convertToConvexFormat(newLifelogs);
+        const lifelogIds = await ctx.runMutation(internal.lifelogs.createDocs, {
+            lifelogs: convexLifelogs
+        });
+        
+        // Update metadata table
+        if (lifelogs.length > 0) {
+            const operation = metadataOperation("sync", `Synced ${lifelogs.length} lifelogs, added ${lifelogIds.length} new lifelogs`, true);
+            await ctx.runMutation(internal.metadata.create, {
+                meta: {
+                    startTime: metadata.startTime === 0 ? convexLifelogs[0].startTime : metadata.startTime,
+                    endTime: convexLifelogs[convexLifelogs.length - 1].endTime,
+                    lifelogIds: metadata.lifelogIds.concat(lifelogIds),
+                    syncedUntil: Math.max(metadata.syncedUntil, convexLifelogs[convexLifelogs.length - 1].endTime)
+                }
+            });
+            await ctx.runMutation(internal.operations.createDocs, {
+                operations: [operation],
             });
         }
         
-        // 7. Record operations for logging
-        operations.push({
-            operation: "sync",
-            table: "metadata",
-            success: true,
-            data: {
-                message: `Synced ${lifelogs.length} lifelogs, added ${lifelogIds.length} new lifelogs`,
-            },
-        });
-        await ctx.runMutation(internal.operations.create, {
-            operations: operations,
-        });
-        console.log(`Sync completed with ${operations.length} operations`);
+        console.log("Sync completed successfully");
         return true;
     },
 });
@@ -191,6 +170,7 @@ async function isRefreshNeeded(existingIds: string[]): Promise<boolean | null> {
         return null;
     }
 }
+
 
 /**
  * Filters out duplicate lifelogs that already exist in the database.
@@ -279,7 +259,7 @@ async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[]
             if (optionalExistingIds) {
               const lastLifelog = lifelogs[lifelogs.length - 1];
               if (optionalExistingIds.includes(lastLifelog.id)) {
-                console.log(`Dupe! End time: ${lastLifelog.endTime ? new Date(lastLifelog.endTime).toISOString() : "N/A"}`);
+                console.log(`Dupe! End time: ${lastLifelog.endTime ? formatDate(lastLifelog.endTime) : "N/A"}`);
               }
             }
             
