@@ -7,16 +7,34 @@ import { v } from 'convex/values';
 import { formatDate } from './utils';
 
 export const sendSlackNotification = internalAction({
+  args: {
+    blocks: v.optional(v.array(v.any())),
+    operation: v.optional(v.union(v.literal("sync"), v.literal("create"), v.literal("read"), v.literal("update"), v.literal("delete")))
+  },
   handler: async (ctx, args) => {
     const url = process.env.SLACK_WEBHOOK_URL;
     if (!url) {
       throw new Error('SLACK_WEBHOOK_URL is not set');
     }
     const webhook = new IncomingWebhook(url);
-    const [operation] = await ctx.runQuery(internal.extras.tests.getLogsByOperation, { operation: "sync", limit: 1 });
-    const timestamp = formatDate(new Date(operation._creationTime));
-    const status = operation.success ? "✅ Success" : "❌ Failure";
-    const details = operation.data.error || operation.data.message || "No details available";
+    
+    // If custom blocks are provided, use them directly
+    if (args.blocks) {
+      await webhook.send({ blocks: args.blocks });
+      return;
+    }
+    
+    // Otherwise, generate blocks from operation logs
+    const operation = args.operation || "sync";
+    const [operationLog] = await ctx.runQuery(internal.extras.tests.getLogsByOperation, { operation, limit: 1 });
+    
+    if (!operationLog) {
+      throw new Error(`No logs found for operation: ${operation}`);
+    }
+    
+    const timestamp = formatDate(new Date(operationLog._creationTime));
+    const status = operationLog.success ? "✅ Success" : "❌ Failure";
+    const details = operationLog.data.error || operationLog.data.message || "No details available";
     
     await webhook.send({
       blocks: [
@@ -25,7 +43,7 @@ export const sendSlackNotification = internalAction({
           text: {
             type: "mrkdwn",
             text: `*📊 Last Operation Report*\n` +
-                  `*Operation:* ${operation.operation}\n` +
+                  `*Operation:* ${operationLog.operation}\n` +
                   `*Status:* ${status}\n` +
                   `*Timestamp:* ${timestamp}`
           }
