@@ -5,6 +5,7 @@ import { metadataDoc } from "./types";
 import { seedMetadata } from "./sampleData/seeds";
 import { internal } from "./_generated/api";
 import { metadataOperation } from "./extras/utils";
+
 // CREATE
 export const create = internalMutation({
   args: {
@@ -22,22 +23,6 @@ export const create = internalMutation({
   },
 });
 
-export const createDefaultMeta = internalMutation({
-  handler: async (ctx) => {
-    const existingMetadata = await ctx.db.query("metadata").take(1);
-    if (existingMetadata.length > 0) {
-      console.log("Metadata already exists, skipping creation");
-      return null;
-    }
-    
-    const id = await ctx.runMutation(internal.metadata.create, {
-      meta: seedMetadata
-    });
-    
-    return id;
-  },
-});
-
 // READ
 export const readDocs = internalQuery({
   args: {
@@ -48,7 +33,8 @@ export const readDocs = internalQuery({
   handler: async (ctx, args) => {
     // Get by ID
     if (args.id) {
-      return await ctx.db.get(args.id);
+      const singleDoc = await ctx.db.get(args.id);
+      return singleDoc ? [singleDoc] : [];
     }
     
     // Get latest entry
@@ -70,12 +56,7 @@ export const readDocs = internalQuery({
 export const update = internalMutation({
   args: {
     id: v.id("metadata"),
-    metadata: v.object({
-      startTime: v.optional(v.number()),
-      endTime: v.optional(v.number()),
-      syncedUntil: v.optional(v.number()),
-      lifelogIds: v.optional(v.array(v.string())),
-    }),
+    metadata: metadataDoc,
   },
   handler: async (ctx, args) => {
     const existingMetadata = await ctx.db.get(args.id);
@@ -95,24 +76,26 @@ export const update = internalMutation({
 });
 
 // DELETE
-export const deleteMetadata = internalMutation({
+export const deleteDocs = internalMutation({
   args: {
-    id: v.id("metadata"),
+    ids: v.array(v.id("metadata")),
   },
   handler: async (ctx, args) => {
-    const existingMetadata = await ctx.db.get(args.id);
-    if (!existingMetadata) {
-      throw new Error(`Metadata with ID ${args.id} not found`);
+    for (const id of args.ids) {
+      const existingMetadata = await ctx.db.get(id);
+      if (!existingMetadata) {
+        throw new Error(`Metadata with ID ${id} not found`);
+      }
+    
+      await ctx.db.delete(id);
+      
+      const operation = metadataOperation("delete", `Deleted metadata entry ${id}`);
+      await ctx.runMutation(internal.operations.createDocs, {
+        operations: [operation],
+      });
     }
     
-    await ctx.db.delete(args.id);
-    
-    const operation = metadataOperation("delete", `Deleted metadata entry ${args.id}`);
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: [operation],
-    });
-    
-    return args.id;
+    return args.ids;
   },
 });
 
