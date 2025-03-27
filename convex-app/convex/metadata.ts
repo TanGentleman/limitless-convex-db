@@ -2,39 +2,50 @@
 import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { metadataDoc } from "./types";
-import { seedMetadata } from "./sampleData/seeds";
 import { internal } from "./_generated/api";
 import { metadataOperation } from "./extras/utils";
+import { Doc, Id } from "./_generated/dataModel";
 
 // CREATE
-export const create = internalMutation({
+export const createDocs = internalMutation({
   args: {
-    meta: metadataDoc,
+    metadataDocs: v.array(metadataDoc),
   },
   handler: async (ctx, args) => {
-    const id = await ctx.db.insert("metadata", args.meta);
+    const ids: Id<"metadata">[] = [];
     
-    const operation = metadataOperation("create", "Created new metadata entry");
+    for (const metadataDoc of args.metadataDocs) {
+      const id = await ctx.db.insert("metadata", metadataDoc);
+      ids.push(id);
+    }
+    
+    const operation = metadataOperation("create", `Created ${ids.length} metadata entries`);
     await ctx.runMutation(internal.operations.createDocs, {
       operations: [operation],
     });
     
-    return id;
+    return ids;
   },
 });
 
 // READ
 export const readDocs = internalQuery({
   args: {
-    id: v.optional(v.id("metadata")),
+    ids: v.optional(v.array(v.id("metadata"))),
     latest: v.optional(v.boolean()),
     all: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    // Get by ID
-    if (args.id) {
-      const singleDoc = await ctx.db.get(args.id);
-      return singleDoc ? [singleDoc] : [];
+    // Get by IDs
+    if (args.ids && args.ids.length > 0) {
+      const docs: Doc<"metadata">[] = [];
+      for (const id of args.ids) {
+        const doc = await ctx.db.get(id);
+        if (doc !== null) {
+          docs.push(doc);
+        }
+      }
+      return docs;
     }
     
     // Get latest entry
@@ -53,25 +64,32 @@ export const readDocs = internalQuery({
 });
 
 // UPDATE
-export const update = internalMutation({
+export const updateDocs = internalMutation({
   args: {
-    id: v.id("metadata"),
-    metadata: metadataDoc,
+    updates: v.array(v.object({
+      id: v.id("metadata"),
+      metadata: metadataDoc,
+    })),
   },
   handler: async (ctx, args) => {
-    const existingMetadata = await ctx.db.get(args.id);
-    if (!existingMetadata) {
-      throw new Error(`Metadata with ID ${args.id} not found`);
+    const updatedIds: Id<"metadata">[] = [];
+    
+    for (const update of args.updates) {
+      const existingMetadata = await ctx.db.get(update.id);
+      if (!existingMetadata) {
+        throw new Error(`Metadata with ID ${update.id} not found`);
+      }
+      
+      await ctx.db.patch(update.id, update.metadata);
+      updatedIds.push(update.id);
     }
     
-    await ctx.db.patch(args.id, args.metadata);
-    
-    const operation = metadataOperation("update", `Updated metadata entry ${args.id}`);
+    const operation = metadataOperation("update", `Updated ${updatedIds.length} metadata entries`);
     await ctx.runMutation(internal.operations.createDocs, {
       operations: [operation],
     });
     
-    return args.id;
+    return updatedIds;
   },
 });
 
@@ -88,30 +106,13 @@ export const deleteDocs = internalMutation({
       }
     
       await ctx.db.delete(id);
-      
-      const operation = metadataOperation("delete", `Deleted metadata entry ${id}`);
-      await ctx.runMutation(internal.operations.createDocs, {
-        operations: [operation],
-      });
     }
     
-    return args.ids;
-  },
-});
-
-export const deleteAll = internalMutation({
-  handler: async (ctx) => {
-    const metadataEntries = await ctx.db.query("metadata").collect();
-    
-    for (const entry of metadataEntries) {
-      await ctx.db.delete(entry._id);
-    }
-    
-    const operation = metadataOperation("delete", `Deleted all ${metadataEntries.length} metadata entries`);
+    const operation = metadataOperation("delete", `Deleted ${args.ids.length} metadata entries`);
     await ctx.runMutation(internal.operations.createDocs, {
       operations: [operation],
     });
     
-    return { count: metadataEntries.length };
+    return args.ids;
   },
 });
