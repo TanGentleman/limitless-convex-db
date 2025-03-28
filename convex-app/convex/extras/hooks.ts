@@ -67,7 +67,9 @@ export const sync = action({
   handler: async (ctx, args) => {
     await ctx.runAction(internal.sync.syncLimitless);
     if (args.sendNotification === true) {
-      await ctx.runAction(internal.extras.hooks.sendSlackNotification, {});
+      await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+        operation: "sync",
+      });
     }
   },
 });
