@@ -95,19 +95,21 @@ export const deleteRecentLifelogs = internalMutation({
   },
 });
 
-export const createDefaultMeta = internalMutation({
+export const getMetadataDoc = internalMutation({
   handler: async (ctx) => {
-    const existingMetadata = await ctx.db.query("metadata").take(1);
+    const existingMetadata = await ctx.db.query("metadata").order("desc").take(1);
+    
     if (existingMetadata.length > 0) {
-      console.log("Metadata already exists, skipping creation");
-      return null;
+      return existingMetadata[0];
     }
     
-    const id = await ctx.runMutation(internal.metadata.create, {
-      meta: seedMetadata
-    });
-    
-    return id;
+    // Create default metadata if none exists
+    const id = await ctx.db.insert("metadata", seedMetadata);
+    const result = await ctx.db.get(id);
+    if (result === null) {
+      throw new Error("Failed to create default metadata");
+    }
+    return result;
   },
 });
 

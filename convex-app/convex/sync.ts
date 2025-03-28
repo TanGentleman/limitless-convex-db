@@ -1,6 +1,6 @@
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import { LifelogNode, convertToConvexFormat } from "./types";
+import { LimitlessLifelog, convertToConvexFormat } from "./types";
 import { formatDate, metadataOperation } from "./extras/utils";
 
 /**
@@ -34,27 +34,15 @@ const defaultDirection = "asc";
 export const syncLimitless = internalAction({
     handler: async (ctx) => {
         // 1. Retrieve metadata about previously synced lifelogs
-        const metaList = await ctx.runQuery(internal.metadata.readDocs, { latest: true });
-        if (metaList.length === 0) {
-            console.log("No metadata found, creating default");
-            const metaId = await ctx.runMutation(internal.extras.tests.createDefaultMeta);
-            if (metaId === null) {
-                const operation = metadataOperation("sync", "Failed to create default metadata! Aborting sync.", false);
-                await ctx.runMutation(internal.operations.createDocs, {
-                    operations: [operation],
-                });
-                return false;
-            }
-        }
-        const metadata = metaList[0];
+        const metadata = await ctx.runMutation(internal.extras.tests.getMetadataDoc);
         console.log(`Metadata: ${metadata.lifelogIds.length} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? formatDate(metadata.syncedUntil) : "N/A"}`);
         
         // 1.5 Try a partial sync
         const partialLifelogs = await fetchLifelogs({
             limit: 10,
             direction: "desc",
-            include_markdown: false,
-            include_headings: false
+            include_markdown: true,
+            include_headings: true
         });
         
         // Filter duplicates from partial sync
@@ -63,7 +51,7 @@ export const syncLimitless = internalAction({
         // Handle partial sync results
         if (newPartialLifelogs.length === 0) {
             // No new lifelogs found, sync not needed
-            const operation = metadataOperation("sync", "No changes needed, sync completed successfully.", true);
+            const operation = metadataOperation("sync", `${metadata.lifelogIds.length} lifelogs up to date.`, true);
             await ctx.runMutation(internal.operations.createDocs, {
                 operations: [operation],
             });
@@ -77,13 +65,13 @@ export const syncLimitless = internalAction({
             
             // Update metadata
             const operation = metadataOperation("sync", `Synced ${newPartialLifelogs.length} new lifelogs`, true);
-            await ctx.runMutation(internal.metadata.create, {
-                meta: {
+            await ctx.runMutation(internal.metadata.createDocs, {
+                metadataDocs: [{
                     startTime: metadata.startTime === 0 ? convexLifelogs[0].startTime : metadata.startTime,
                     endTime: convexLifelogs[convexLifelogs.length - 1].endTime,
                     lifelogIds: metadata.lifelogIds.concat(lifelogIds),
                     syncedUntil: Math.max(metadata.syncedUntil, convexLifelogs[convexLifelogs.length - 1].endTime)
-                }
+                }]
             });
             await ctx.runMutation(internal.operations.createDocs, {
                 operations: [operation],
@@ -119,13 +107,13 @@ export const syncLimitless = internalAction({
         // Update metadata table
         if (lifelogs.length > 0) {
             const operation = metadataOperation("sync", `Synced ${lifelogs.length} lifelogs, added ${lifelogIds.length} new lifelogs`, true);
-            await ctx.runMutation(internal.metadata.create, {
-                meta: {
+            await ctx.runMutation(internal.metadata.createDocs, {
+                metadataDocs: [{
                     startTime: metadata.startTime === 0 ? convexLifelogs[0].startTime : metadata.startTime,
                     endTime: convexLifelogs[convexLifelogs.length - 1].endTime,
                     lifelogIds: metadata.lifelogIds.concat(lifelogIds),
                     syncedUntil: Math.max(metadata.syncedUntil, convexLifelogs[convexLifelogs.length - 1].endTime)
-                }
+                }]
             });
             await ctx.runMutation(internal.operations.createDocs, {
                 operations: [operation],
@@ -179,7 +167,7 @@ async function isRefreshNeeded(existingIds: string[]): Promise<boolean | null> {
  * @param existingIds - Array of existing lifelog IDs
  * @returns Array of new lifelogs
  */
-function filterDuplicateLifelogs(lifelogs: LifelogNode[], existingIds: string[]): LifelogNode[] {
+function filterDuplicateLifelogs(lifelogs: LimitlessLifelog[], existingIds: string[]): LimitlessLifelog[] {
     return lifelogs.filter(log => !existingIds.includes(log.id));
 }
 
@@ -189,7 +177,7 @@ function filterDuplicateLifelogs(lifelogs: LifelogNode[], existingIds: string[])
  * 
  * @param args - Request parameters for the API
  * @param optionalExistingIds - Optional array of existing IDs for duplicate detection
- * @returns Promise<LifelogNode[]> - Array of lifelogs from the API
+ * @returns Promise<LimitlessLifelog[]> - Array of lifelogs from the API
  */
 async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[] = []) {
     const API_KEY = process.env.LIMITLESS_API_KEY;
@@ -198,7 +186,7 @@ async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[]
         throw new Error("LIMITLESS_API_KEY environment variable not set");
     }
     
-    const allLifelogs: LifelogNode[] = [];
+    const allLifelogs: LimitlessLifelog[] = [];
     let cursor = args.cursor;
     const limit = args.limit || defaultTotalLimit;
     let batchSize = args.limit || defaultBatchSize;
@@ -248,7 +236,7 @@ async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[]
             }
             
             const data = await response.json();
-            const lifelogs: LifelogNode[] = data.data?.lifelogs || [];
+            const lifelogs: LimitlessLifelog[] = data.data?.lifelogs || [];
 
             if (lifelogs.length === 0) {
                 console.log(`No lifelogs found in this batch.`);
