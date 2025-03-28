@@ -3,6 +3,10 @@
 import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
 import { Doc } from "../_generated/dataModel";
+import { v } from "convex/values";
+
+// For how many documents to patch
+const maxLimit = 500;
 
 // Process operations logs
 function processOperationDoc(doc: Doc<"operations">): Partial<Doc<"operations">> | null {
@@ -40,33 +44,48 @@ function processLifelogDoc(doc: Doc<"lifelogs">): Partial<Doc<"lifelogs">> | nul
 }
 
 // Update documents with patches
-export const patchOperations = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+export const runPatches = internalMutation({
+  args: {
+    tables: v.object({
+      operations: v.boolean(),
+      metadata: v.boolean(),
+      lifelogs: v.boolean()
+    }),
+    limit: v.optional(v.number())
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? maxLimit;
+    
     // Process operations
-    const operationLogs = await ctx.runQuery(internal.operations.readDocs, { limit: 100 });
-    for (const log of operationLogs) {
-      const update = processOperationDoc(log);
-      if (update) {
-        await ctx.db.patch(log._id, update);
+    if (args.tables.operations === true) {
+      const operationLogs = await ctx.runQuery(internal.operations.readDocs, { limit });
+      for (const log of operationLogs) {
+        const update = processOperationDoc(log);
+        if (update) {
+          await ctx.db.patch(log._id, update);
+        }
       }
     }
     
     // Process metadata
-    const metadataLogs = await ctx.runQuery(internal.metadata.readDocs, { all: true });
-    for (const log of metadataLogs) {
-      const update = processMetadataDoc(log);
-      if (update) {
-        await ctx.db.patch(log._id, update);
+    if (args.tables.metadata === true) {
+      const metadataLogs = await ctx.runQuery(internal.metadata.readDocs, { limit });
+      for (const log of metadataLogs) {
+        const update = processMetadataDoc(log);
+        if (update) {
+          await ctx.db.patch(log._id, update);
+        }
       }
     }
     
     // Process lifelogs
-    const lifelogDocs = await ctx.runQuery(internal.lifelogs.readDocs, { limit: 100 });
-    for (const log of lifelogDocs) {
-      const update = processLifelogDoc(log);
-      if (update) {
-        await ctx.db.patch(log._id, update);
+    if (args.tables.lifelogs === true) {
+      const lifelogDocs = await ctx.runQuery(internal.lifelogs.readDocs, { limit });
+      for (const log of lifelogDocs) {
+        const update = processLifelogDoc(log);
+        if (update) {
+          await ctx.db.patch(log._id, update);
+        }
       }
     }
   },
