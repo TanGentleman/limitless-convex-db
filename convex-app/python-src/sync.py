@@ -2,11 +2,12 @@
 Convex client for syncing Limitless data and scheduling sync operations.
 
 Usage:
-    python main.py --now                # Run sync immediately
-    python main.py 10s                  # Schedule sync in 10 seconds
-    python main.py 5m                   # Schedule sync in 5 minutes
-    python main.py 2h                   # Schedule sync in 2 hours
-    python main.py 1d                   # Schedule sync in 1 day
+    python sync.py --now                # Run sync immediately
+    python sync.py --show               # Show the last lifelog entry
+    python sync.py 10s                  # Schedule sync in 10 seconds
+    python sync.py 5m                   # Schedule sync in 5 minutes
+    python sync.py 2h                   # Schedule sync in 2 hours
+    python sync.py 1d                   # Schedule sync in 1 day
 """
 
 import os
@@ -38,15 +39,24 @@ def sync_later(client: ConvexClient, seconds: int = 0, minutes: int = 0, hours: 
         "days": days
     })
 
+def show_last_lifelog(client: ConvexClient, send_notification: bool = True) -> None:
+    """Show the last lifelog entry with optional notification"""
+    return client.action("extras/hooks:getLastLifelog", {"sendNotification": send_notification})
+
 def main():
     parser = argparse.ArgumentParser(description="Sync Limitless data with Convex")
     parser.add_argument("--now", action="store_true", help="Run sync immediately")
+    parser.add_argument("--show", action="store_true", help="Show the last lifelog entry")
     parser.add_argument("delay", nargs="?", help="Delay for sync (e.g. 10s, 1m, 1h, 1d)", default=None)
     args = parser.parse_args()
     
     client = get_client()
     
-    if args.delay:
+    if args.show:
+        print("Showing last lifelog entry...")
+        show_last_lifelog(client, SEND_SLACK_NOTIFICATION)
+        print("Done")
+    elif args.delay:
         value = args.delay[:-1]
         unit = args.delay[-1].lower()
         
