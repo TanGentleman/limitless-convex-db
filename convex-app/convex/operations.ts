@@ -3,6 +3,9 @@ import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { operationsDoc } from "./types";
 
+
+
+
 // CREATE
 // Log a new operation
 export const createDocs = internalMutation({
@@ -17,19 +20,23 @@ export const createDocs = internalMutation({
 });
 
 // READ
-// Get recent operation logs
+// Set limit to null to get all
 export const readDocs = internalQuery({
   args: {
-    limit: v.optional(v.number()),
+    limit: v.optional(v.union(v.number(), v.null())),
+    direction: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
   },
   handler: async (ctx, args) => {
+    const limit = args.limit !== undefined ? args.limit : 10;
+    const direction = args.direction || "desc";
     const queryBatch = ctx.db
       .query("operations")
-      .order("desc")
-    if (args.limit === undefined) {
+      .order(direction);
+    if (limit === null) {
       return queryBatch.collect();
-    } else {
-      return await queryBatch.take(args.limit);
+    } 
+    else {
+      return await queryBatch.take(limit);
     }
   },
 });
@@ -38,11 +45,15 @@ export const readDocs = internalQuery({
 // Update an operation
 export const update = internalMutation({
   args: {
-    id: v.id("operations"),
-    operation: operationsDoc,
+    updates: v.array(v.object({
+      id: v.id("operations"),
+      operation: operationsDoc,
+    })),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, args.operation);
+    for (const update of args.updates) {
+      await ctx.db.patch(update.id, update.operation);
+    }
   },
 });
 
