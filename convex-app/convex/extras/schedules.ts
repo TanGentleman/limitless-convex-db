@@ -1,4 +1,4 @@
-import { action, internalAction } from "../_generated/server";
+import { action, internalAction, internalMutation, internalQuery } from "../_generated/server";
 import { api, internal } from "../_generated/api";
 import { v } from "convex/values";
 
@@ -11,13 +11,45 @@ export const scheduleSync = action({
     },
     handler: async (ctx, args) => {
       const { seconds, minutes, hours, days } = args;
+      // Check if there's already a scheduled sync
       const delay = (seconds || 0) * 1000 + (minutes || 0) * 60 * 1000 + (hours || 0) * 60 * 60 * 1000 + (days || 0) * 24 * 60 * 60 * 1000;
-      await ctx.scheduler.runAfter(delay, api.extras.hooks.sync, {
-        sendNotification: true,
+      const isScheduled = await ctx.runQuery(internal.extras.schedules.isSyncScheduled, {
+        delay,
+      });
+      if (isScheduled) {
+        console.log("Already scheduled.");
+        return;
+      }
+      await ctx.scheduler.runAfter(delay, internal.sync.syncLimitless);
+      await ctx.scheduler.runAfter(delay, internal.extras.hooks.sendSlackNotification, {
+        operation: "sync",
       });
     },
   });
 
+// internal mutation  
+export const isSyncScheduled = internalQuery({
+  args: {
+    delay: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const { delay } = args;
+    const scheduledFunctions = await ctx.db.system.query("_scheduled_functions")
+    .filter(q => q.eq(q.field("name"), "sync.js:syncLimitless")).order("desc")
+    .take(1);
+    if (scheduledFunctions.length === 0) {
+      return false;
+    }
+    const scheduledFunction = scheduledFunctions[0];
+    
+    // Check if the function is already scheduled within 10 seconds of requested time
+    const currentTime = Date.now();
+    const requestedTime = currentTime + delay;
+    
+    // Return true if within 10 second window, false otherwise
+    return Math.abs(scheduledFunction.scheduledTime - requestedTime) <= 10000;
+  },
+});
   /**
  * Template code for using scheduler
  * 
