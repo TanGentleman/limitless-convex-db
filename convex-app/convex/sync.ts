@@ -33,10 +33,10 @@ export type LifelogRequest = {
   direction?: "asc" | "desc";
   
   /** Whether to include markdown content in results. Default: true */
-  include_markdown?: boolean;
+  includeMarkdown?: boolean;
   
   /** Whether to include headings in results. Default: true */
-  include_headings?: boolean;
+  includeHeadings?: boolean;
   
   /** Maximum entries to return per batch - Handled internally by fetchLifelogs */
   limit?: number;
@@ -77,8 +77,8 @@ export const syncLimitless = internalAction({
         // 3. Fetch lifelogs using the chosen strategy
         const fetchArgs: LifelogRequest = {
             direction: direction,
-            include_markdown: true, // Always include content for now
-            include_headings: true, // Always include headings for now
+            includeMarkdown: true, // Always include content for now
+            includeHeadings: true, // Always include headings for now
         };
         const fetchedLifelogs = await fetchLifelogs(fetchArgs, existingIdsSet);
 
@@ -173,8 +173,8 @@ async function fetchLifelogs(args: LifelogRequest, existingIds: Set<string>): Pr
     while (true) {
         const params: Record<string, string | number | boolean> = {
             limit: batchSize,
-            include_markdown: args.include_markdown === false ? false : true,
-            include_headings: args.include_headings === false ? false : true,
+            includeMarkdown: args.includeMarkdown === false ? false : true,
+            includeHeadings: args.includeHeadings === false ? false : true,
             direction: args.direction,
             timezone: args.timezone || process.env.TIMEZONE || "UTC"
         };

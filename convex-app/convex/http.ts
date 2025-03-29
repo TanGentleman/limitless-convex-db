@@ -68,8 +68,8 @@ http.route({
         end: params.get("end") || undefined,
         cursor: params.get("cursor") || undefined,
         direction: (params.get("direction") as "asc" | "desc") || "desc",
-        include_markdown: params.has("includeMarkdown") ? params.get("includeMarkdown") === "true" : true,
-        include_headings: params.has("includeHeadings") ? params.get("includeHeadings") === "true" : true,
+        includeMarkdown: params.has("includeMarkdown") ? params.get("includeMarkdown") === "true" : true,
+        includeHeadings: params.has("includeHeadings") ? params.get("includeHeadings") === "true" : true,
         limit: params.has("limit") ? parseInt(params.get("limit") as string, 10) : undefined,
       };
       
@@ -90,13 +90,25 @@ http.route({
         startTime,
         endTime,
         direction: requestOptions.direction,
-        includeMarkdown: requestOptions.include_markdown,
-        includeHeadings: requestOptions.include_headings,
         limit: requestOptions.limit,
       });
 
       // Convert lifelogs to Limitless format
       const limitlessLifelogs = convertToLimitlessFormat(convexLifelogs);
+
+      // filter markdown and headings if requested
+      if (!requestOptions.includeMarkdown) {
+        limitlessLifelogs.forEach(lifelog => {
+          lifelog.markdown = null;
+        });
+      }
+
+      if (!requestOptions.includeHeadings) {
+        limitlessLifelogs.forEach(lifelog => {
+          lifelog.contents = lifelog.contents.filter(content => content.type !== "heading1" && content.type !== "heading2" && content.type !== "heading3");
+        });
+      }
+      
       
       // Format the response according to OpenAPI schema
       return new Response(
