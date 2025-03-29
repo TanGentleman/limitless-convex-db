@@ -277,40 +277,55 @@ export const deleteDocs = internalMutation({
 });
 
 /**
- * Deletes ALL lifelog documents. Use with extreme caution.
+ * Deletes ALL lifelog documents and their associated markdown embeddings. 
+ * Use with caution as this operation is irreversible.
  * 
- * @param destructive - Must be explicitly set to `true` to perform deletion. 
+ * @param destructive - Must be explicitly set to `true` to perform deletion.
  *                      If false or omitted, no documents are deleted.
- * @returns An object containing the `lifelogId`s of the documents that were deleted (or would have been).
+ * @returns An object containing:
+ *          - ids: Array of lifelogIds that were deleted (or would have been)
+ *          - count: Total number of affected lifelogs
+ *          - deletedEmbeddings: Number of associated embeddings deleted
  */
 export const deleteAll = internalMutation({
   args: {
     destructive: v.boolean(), // Safety flag
   },
   handler: async (ctx, args) => {
-    // Fetch all documents first to get their IDs for the return value and count
+    // Fetch all documents with their embeddings
     const allLifelogs = await ctx.db.query("lifelogs").collect();
-    const lifelogIds = allLifelogs.map((doc) => doc.lifelogId);
     const count = allLifelogs.length;
+    let deletedEmbeddings = 0;
 
     if (args.destructive === true) {
-      console.warn(`DESTRUCTIVE OPERATION: Deleting ${count} lifelogs.`);
+      console.warn(`DESTRUCTIVE OPERATION: Deleting ${count} lifelogs and their associated embeddings.`);
       for (const lifelog of allLifelogs) {
         await ctx.db.delete(lifelog._id);
-        // TODO: Should this also delete associated embeddings? Requires fetching embeddingId first.
+        
+        // Delete associated embedding if it exists
+        const embeddingId = lifelog.embeddingId;
+        if (embeddingId) {
+          console.log(`Deleting embedding ${embeddingId} for lifelog ${lifelog._id}`);
+          await ctx.db.delete(embeddingId);
+          deletedEmbeddings++;
+        }
       }
     } else {
-      console.log(`NOTE: Destructive flag is false. Skipping deletion of ${count} lifelogs.`);
+      console.log(`NOTE: Destructive flag is false. Would have deleted ${count} lifelogs and their embeddings.`);
     }
 
-    // Log the operation regardless of whether deletion occurred
+    // Log the operation with detailed information
     const operation = lifelogOperation(
       "delete", 
-      `Attempted deletion of all ${count} lifelogs. Destructive: ${args.destructive}.`
+      `Attempted deletion of all ${count} lifelogs and ${deletedEmbeddings} embeddings. Destructive: ${args.destructive}.`
     );
     await ctx.db.insert("operations", operation);
 
-    return { ids: lifelogIds }; // Return the IDs of affected (or potentially affected) logs
+    return { 
+      ids: allLifelogs.map(doc => doc.lifelogId),
+      count,
+      deletedEmbeddings
+    };
   },
 });
 
