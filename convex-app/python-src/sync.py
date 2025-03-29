@@ -8,11 +8,13 @@ Usage:
     python sync.py 5m                   # Schedule sync in 5 minutes
     python sync.py 2h                   # Schedule sync in 2 hours
     python sync.py 1d                   # Schedule sync in 1 day
+    python sync.py --http               # Trigger sync via HTTP endpoint
 """
 
 import os
 import argparse
-from dotenv import load_dotenv
+import requests
+from dotenv import load_dotenv # type: ignore
 from convex import ConvexClient
 
 # Needs SLACK_WEBHOOK_URL to be set in Convex Environment
@@ -43,10 +45,39 @@ def show_last_lifelog(client: ConvexClient, send_notification: bool = True) -> N
     """Show the last lifelog entry with optional notification"""
     return client.action("extras/hooks:getLastLifelog", {"sendNotification": send_notification})
 
+def trigger_sync_http() -> dict:
+    """
+    Trigger a sync operation on the Convex deployment using HTTP endpoint
+    
+    Returns:
+        dict: Response from the server
+    """
+    load_dotenv()
+    convex_url = os.getenv("CONVEX_URL")
+    if not convex_url:
+        raise ValueError("CONVEX_URL environment variable is not set")
+    
+    # Convert from .cloud to .site for HTTP routes
+    if ".cloud" in convex_url:
+        deployment_url = convex_url.replace(".cloud", ".site")
+    else:
+        deployment_url = convex_url
+        
+    url = f"{deployment_url}/sync"
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    response = requests.post(url, headers=headers)
+    response.raise_for_status()  # Raise an exception for HTTP errors
+    
+    return response.json()
+
 def main():
     parser = argparse.ArgumentParser(description="Sync Limitless data with Convex")
     parser.add_argument("--now", action="store_true", help="Run sync immediately")
     parser.add_argument("--show", action="store_true", help="Show the last lifelog entry")
+    parser.add_argument("--http", action="store_true", help="Trigger sync via HTTP endpoint")
     parser.add_argument("delay", nargs="?", help="Delay for sync (e.g. 10s, 1m, 1h, 1d)", default=None)
     args = parser.parse_args()
     
@@ -56,6 +87,10 @@ def main():
         print("Showing last lifelog entry...")
         show_last_lifelog(client, SEND_SLACK_NOTIFICATION)
         print("Done")
+    elif args.http:
+        print("Triggering sync via HTTP endpoint...")
+        response = trigger_sync_http()
+        print(f"Response: {response}")
     elif args.delay:
         value = args.delay[:-1]
         unit = args.delay[-1].lower()
