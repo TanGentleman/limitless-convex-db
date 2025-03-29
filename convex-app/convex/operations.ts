@@ -3,8 +3,7 @@ import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { operationsDoc } from "./types";
 
-
-
+const defaultLimit = 1;
 
 // CREATE
 // Log a new operation
@@ -27,7 +26,7 @@ export const readDocs = internalQuery({
     direction: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
   },
   handler: async (ctx, args) => {
-    const limit = args.limit !== undefined ? args.limit : 10;
+    const limit = args.limit !== undefined ? args.limit : defaultLimit;
     const direction = args.direction || "desc";
     const queryBatch = ctx.db
       .query("operations")

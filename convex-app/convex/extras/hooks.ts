@@ -141,11 +141,17 @@ export const sync = action({
     sendNotification: v.optional(v.boolean())
   },
   handler: async (ctx, args) => {
-    await ctx.runAction(internal.sync.syncLimitless);
+    const isNewLifelogs = await ctx.runAction(internal.sync.syncLimitless);
     if (args.sendNotification === true) {
       await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
         operation: "sync",
       });
+      // In case we are getting slightly stale data, keep a short delay
+      // await ctx.scheduler.runAfter(500, internal.extras.hooks.sendSlackNotification, {
+      //   operation: "sync",
+      // });
     }
+    
+    return isNewLifelogs;
   },
 });

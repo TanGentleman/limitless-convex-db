@@ -52,3 +52,9 @@ export const markdownEmbeddingOperation = (
   return createOperation(operation, "markdownEmbeddings", success, { message });
 };
 
+export const seedMetadata = {
+  startTime: 0,
+  endTime: 0,
+  syncedUntil: 0,
+  lifelogIds: [],
+};
