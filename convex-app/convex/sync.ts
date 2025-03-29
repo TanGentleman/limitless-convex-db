@@ -4,35 +4,62 @@ import { LimitlessLifelog, convertToConvexFormat } from "./types";
 import { formatDate, metadataOperation } from "./extras/utils";
 
 /**
- * Request parameters for retrieving lifelogs.
- * Matches the Limitless API query parameters.
- * Note: 'limit' is handled internally by fetchLifelogs batching.
- * Note: 'start'/'end' might not be needed with the new sync logic.
+ * Request parameters for retrieving lifelogs from the Limitless API.
+ * 
+ * These parameters match the Limitless API query parameters with some
+ * additional handling specific to our sync implementation.
  */
 export type LifelogRequest = {
-  timezone?: string;      // IANA timezone specifier. Default: UTC
-  date?: string;          // Format: YYYY-MM-DD - Ignored, use start/end.
-  start?: string;         // ISO-8601 format - Handled by sync logic based on metadata
-  end?: string;           // ISO-8601 format - Handled by sync logic based on metadata
-  cursor?: string;        // Cursor for pagination
-  direction?: "asc" | "desc"; // Sort direction. Required by fetchLifelogs.
-  include_markdown?: boolean; // Include markdown content. Default: true
-  include_headings?: boolean; // Include headings. Default: true
-  limit?: number;         // Maximum entries to return - Handled internally
+  /** IANA timezone specifier (e.g. "America/New_York"). Default: UTC */
+  timezone?: string;
+  
+  /** Format: YYYY-MM-DD - Not used in current implementation, use start/end instead */
+  date?: string;
+  
+  /** ISO-8601 format start date - Automatically determined by sync logic based on metadata */
+  start?: string;
+  
+  /** ISO-8601 format end date - Automatically determined by sync logic based on metadata */
+  end?: string;
+  
+  /** Pagination cursor returned from previous API calls */
+  cursor?: string;
+  
+  /** 
+   * Sort direction for results. Required by fetchLifelogs.
+   * - "asc": oldest first (used for initial sync)
+   * - "desc": newest first (used for subsequent syncs)
+   */
+  direction?: "asc" | "desc";
+  
+  /** Whether to include markdown content in results. Default: true */
+  include_markdown?: boolean;
+  
+  /** Whether to include headings in results. Default: true */
+  include_headings?: boolean;
+  
+  /** Maximum entries to return per batch - Handled internally by fetchLifelogs */
+  limit?: number;
 }
 
-// const defaultTotalLimit = 50; // No longer used, fetch continues until duplicate or end
-const defaultBatchSize = 10; // Limitless API default/max might be different, but 10 is reasonable.
+// Number of lifelogs to fetch per API request
+const defaultBatchSize = 10;
 
 /**
- * Synchronizes lifelogs from Limitless API to the Convex database.
- *
- * Determines sync strategy based on existing data:
- * - First Sync: Fetches all lifelogs in ascending order.
- * - Subsequent Syncs: Fetches newest lifelogs in descending order until a known lifelog is found.
- *
- * Stores new lifelogs, updates metadata, and logs operations.
- *
+ * Synchronizes lifelogs from the Limitless API to the Convex database.
+ * 
+ * This action implements a smart sync strategy that adapts based on existing data:
+ * - First Sync: Fetches all lifelogs in ascending order (oldest first)
+ * - Subsequent Syncs: Fetches newest lifelogs in descending order until a known lifelog is found
+ * 
+ * The function handles:
+ * - Determining the appropriate sync strategy
+ * - Fetching lifelogs from the Limitless API
+ * - Filtering out duplicates
+ * - Converting and storing new lifelogs
+ * - Updating metadata with the latest sync information
+ * - Logging operations for monitoring
+ * 
  * @returns Promise<boolean> - true if new lifelogs were added, false otherwise
  */
 export const syncLimitless = internalAction({
