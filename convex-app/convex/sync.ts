@@ -66,7 +66,7 @@ export const syncLimitless = internalAction({
     handler: async (ctx) => {
         // 1. Retrieve metadata about previously synced lifelogs
         const metadata = await ctx.runMutation(internal.extras.tests.getMetadataDoc);
-        const existingIdsSet = new Set(metadata.lifelogIds);
+        const existingIdsSet = new Set<string>(metadata.lifelogIds);
         console.log(`Metadata: ${existingIdsSet.size} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? formatDate(metadata.syncedUntil) : "N/A"}`);
 
         // 2. Determine sync strategy
