@@ -8,7 +8,8 @@ import { lifelogOperation, markdownEmbeddingOperation } from "./extras/utils";
 
 
 const defaultDirection = "desc";
-const defaultLimit = 1000;
+const defaultLimit = 1;
+
 // CREATE
 export const createDocs = internalMutation({
   args: {
@@ -47,9 +48,7 @@ export const createDocs = internalMutation({
     }
     
     const operation = lifelogOperation("create", `Created ${lifelogIds.length} new lifelogs`);
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: [operation],
-    });
+    await ctx.db.insert("operations", operation);
     
     return lifelogIds;
   },
@@ -125,7 +124,6 @@ export const updateDocs = internalMutation({
   },
   handler: async (ctx, args) => {
     const updatedLifelogDocIds: Id<"lifelogs">[] = [];
-    const operations: any[] = [];
     const embeddingsToDelete: Id<"markdownEmbeddings">[] = [];
     
     // Process each lifelog update in the batch
@@ -186,15 +184,13 @@ export const updateDocs = internalMutation({
         "delete", 
         `Deleted ${embeddingsToDelete.length} old embeddings`
       );
-      operations.push(deleteEmbeddingOperation);
+      await ctx.db.insert("operations", deleteEmbeddingOperation);
     }
     
     // ---------- OPERATION LOGGING ----------
     // Record the batch update operation
-    operations.push(lifelogOperation("update", `Updated ${updatedLifelogDocIds.length} lifelogs`));
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: operations,
-    });
+    const operation = lifelogOperation("update", `Updated ${updatedLifelogDocIds.length} lifelogs`);
+    await ctx.db.insert("operations", operation);
     
     return updatedLifelogDocIds;
   },
@@ -212,9 +208,7 @@ export const deleteDocs = internalMutation({
     }
     
     const operation = lifelogOperation("delete", `Deleted ${args.ids.length} lifelogs`);
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: [operation],
-    });
+    await ctx.db.insert("operations", operation);
   },
 });
 
@@ -237,9 +231,7 @@ export const deleteAll = internalMutation({
     }
     
     const operation = lifelogOperation("delete", `Deleted all ${lifelogs.length} lifelogs. (destructive: ${args.destructive})`);
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: [operation],
-    });
+    await ctx.db.insert("operations", operation);
     
     return { ids: lifelogs.map((lifelog) => lifelog.lifelogId) };
   },
@@ -279,9 +271,7 @@ export const deleteDuplicates = internalMutation({
     }
     
     const operation = lifelogOperation("delete", `Deleted ${duplicatesToDelete.length} duplicate lifelogs`);
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: [operation],
-    });
+    await ctx.db.insert("operations", operation);
     
     return { 
       deletedCount: duplicatesToDelete.length,
