@@ -4,7 +4,15 @@ import { IncomingWebhook } from '@slack/webhook';
 import { action, internalAction } from "../_generated/server";
 import { internal } from '../_generated/api';
 import { v } from 'convex/values';
-import { formatDate } from './utils';
+import { formatDate, formatMarkdown } from './utils';
+
+export const getWebhook = () => {
+  const url = process.env.SLACK_WEBHOOK_URL;
+  if (!url) {
+    throw new Error('SLACK_WEBHOOK_URL is not set');
+  }
+  return new IncomingWebhook(url);
+};
 
 export const sendSlackNotification = internalAction({
   args: {
@@ -88,12 +96,11 @@ export const getLastLifelog = action({
       
       // Process markdown to make it more Slack-friendly
       // Replace markdown headers with bold text
-      const processedMarkdown = markdown
-        .replace(/^# (.*$)/gm, '*$1*')
-        .replace(/^## (.*$)/gm, '*$1*')
-        .replace(/^### (.*$)/gm, '*$1*')
-        // Add extra line breaks for better readability
-        .replace(/\n- /g, '\n• ');
+      const processedMarkdown = formatMarkdown(markdown, true);
+      const maxContentLength = 2000;
+      const truncatedMarkdown = processedMarkdown.length > maxContentLength 
+        ? processedMarkdown.substring(0, maxContentLength) + "..." 
+        : processedMarkdown;
       
       await webhook.send({
         blocks: [
@@ -125,7 +132,7 @@ export const getLastLifelog = action({
             type: "section",
             text: {
               type: "mrkdwn",
-              text: processedMarkdown
+              text: truncatedMarkdown
             }
           }
         ]
