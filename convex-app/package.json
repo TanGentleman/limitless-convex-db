@@ -1,6 +1,6 @@
 {
   "name": "limitless-convex",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Convex integration for Limitless API",
   "main": "index.js",
   "scripts": {
@@ -13,11 +13,9 @@
   ],
   "author": "TanGentleman",
   "license": "MIT",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
-    "convex": "^1.21.0"
-  },
-  "optionalDependencies": {
+    "convex": "^1.21.0",
     "@slack/webhook": "^7.0.5"
   }
 }

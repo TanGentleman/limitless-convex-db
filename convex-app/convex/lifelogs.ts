@@ -111,6 +111,32 @@ export const readDocs = internalQuery({
   },
 });
 
+
+/**
+ * Retrieves specific lifelog documents by their Convex document IDs.
+ * 
+ * @param ids - An array of document IDs (Id<"lifelogs">) to fetch.
+ * @returns An array of found lifelog documents. Logs warnings for missing IDs.
+ */
+export const getDocsById = internalQuery({
+  args: {
+    ids: v.array(v.id("lifelogs")),
+  },
+  handler: async (ctx, args) => {
+    const lifelogs: Doc<"lifelogs">[] = [];
+    for (const id of args.ids) {
+      const lifelog = await ctx.db.get(id);
+      if (lifelog) {
+        lifelogs.push(lifelog);
+      } else {
+        console.warn(`WARNING: Lifelog with id ${id} not found`);
+      }
+    }
+    return lifelogs;
+  },
+});
+
+
 /**
  * Retrieves specific lifelog documents by their `lifelogId`.
  * 

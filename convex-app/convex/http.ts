@@ -29,11 +29,11 @@ http.route({
         }
       );
     } catch (error) {
-      console.error("Error in sync HTTP action:", error);
+      console.error("Error in sync HTTP action:", "See Dev logs.");
       return new Response(
         JSON.stringify({
           success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: "An unexpected error occurred during sync",
         }),
         {
           status: 500,
@@ -45,13 +45,29 @@ http.route({
     }
   }),
 });
-
-// Define a route for reading lifelogs
+// Define a route for reading lifelogs with API key authentication
 http.route({
   path: "/v1/lifelogs",
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     try {
+      // Verify API key from Authorization header
+      const authHeader = request.headers.get("Authorization");
+      const apiKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      
+      if (!apiKey || apiKey !== process.env.LIMITLESS_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: "Unauthorized: Invalid or missing API key" }),
+          {
+            status: 401,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            },
+          }
+        );
+      }
+
       // Parse query parameters from URL
       const url = new URL(request.url);
       const params = url.searchParams;
@@ -105,7 +121,6 @@ http.route({
         });
       }
       
-      
       // Format the response according to OpenAPI schema
       return new Response(
         JSON.stringify({
@@ -130,10 +145,10 @@ http.route({
         }
       );
     } catch (error) {
-      console.error("Error in lifelogs HTTP action:", error);
+      console.error("Error in lifelogs HTTP action:", "See Dev logs.");
       return new Response(
         JSON.stringify({
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: "An unexpected error occurred during lifelogs retrieval",
         }),
         {
           status: 500,
