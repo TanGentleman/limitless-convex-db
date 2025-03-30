@@ -21,59 +21,8 @@ export const getLastLifelog = action({
       
       // Send Slack notification if requested
       if (args.sendNotification === true) {
-        const url = process.env.SLACK_WEBHOOK_URL;
-        if (!url) {
-          throw new Error('SLACK_WEBHOOK_URL is not set');
-        }
-        const webhook = getWebhook();
-        
-        // Format the markdown content for better readability
-        const markdown = lastLifelog[0].markdown || "No content available";
-        const timestamp = formatDate(new Date(lastLifelog[0]._creationTime));
-        const title = lastLifelog[0].title || "Untitled Lifelog";
-        
-        // Process markdown to make it more Slack-friendly
-        // Replace markdown headers with bold text
-        const processedMarkdown = formatMarkdown(markdown, true);
-        const maxContentLength = 2000;
-        const truncatedMarkdown = processedMarkdown.length > maxContentLength 
-          ? processedMarkdown.substring(0, maxContentLength) + "..." 
-          : processedMarkdown;
-        
-        await webhook.send({
-          blocks: [
-            {
-              type: "header",
-              text: {
-                type: "plain_text",
-                text: "📝 Latest Lifelog Entry",
-                emoji: true
-              }
-            },
-            {
-              type: "section",
-              fields: [
-                {
-                  type: "mrkdwn",
-                  text: `*Title:*\n${title}`
-                },
-                {
-                  type: "mrkdwn",
-                  text: `*Created:*\n${timestamp}`
-                }
-              ]
-            },
-            {
-              type: "divider"
-            },
-            {
-              type: "section",
-              text: {
-                type: "mrkdwn",
-                text: truncatedMarkdown
-              }
-            }
-          ]
+        await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+          lifelogId: lastLifelog[0]._id
         });
       }
       
