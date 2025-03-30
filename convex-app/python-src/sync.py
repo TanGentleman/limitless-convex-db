@@ -18,7 +18,7 @@ from dotenv import load_dotenv # type: ignore
 from convex import ConvexClient
 
 # Needs SLACK_WEBHOOK_URL to be set in Convex Environment
-SEND_SLACK_NOTIFICATION = True
+SEND_SLACK_NOTIFICATION = False
 
 def get_client() -> ConvexClient:
     """Initialize Convex client from CONVEX_URL in .env"""
@@ -52,23 +52,19 @@ def trigger_sync_http() -> dict:
     Returns:
         dict: Response from the server
     """
-    load_dotenv()
     convex_url = os.getenv("CONVEX_URL")
-    if not convex_url:
+    if convex_url is None:
         raise ValueError("CONVEX_URL environment variable is not set")
     
+    if ".cloud" not in convex_url:
+        raise ValueError("CONVEX_URL must be a valid Convex deployment URL (ending with .cloud)")
+    
     # Convert from .cloud to .site for HTTP routes
-    if ".cloud" in convex_url:
-        deployment_url = convex_url.replace(".cloud", ".site")
-    else:
-        deployment_url = convex_url
+    deployment_url = convex_url.replace(".cloud", ".site")
         
     url = f"{deployment_url}/sync"
-    headers = {
-        "Content-Type": "application/json"
-    }
     
-    response = requests.post(url, headers=headers)
+    response = requests.get(url)
     response.raise_for_status()  # Raise an exception for HTTP errors
     
     return response.json()

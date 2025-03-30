@@ -1,6 +1,6 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { formatDate } from "./extras/utils";
 import { LifelogRequest } from "./sync";
 import { convertToLimitlessFormat } from "./types";
@@ -11,13 +11,9 @@ const http = httpRouter();
 http.route({
   path: "/sync",
   method: "GET",
-  handler: httpAction(async (ctx, request) => {
+  handler: httpAction(async (ctx) => {
     try {
-      // Run the sync action
-      const isNewLifelogs = await ctx.runAction(api.extras.hooks.sync, {
-        sendNotification: true,
-      });
-      
+      const isNewLifelogs = await ctx.runAction(internal.sync.syncLimitless);
       // Return appropriate response
       return new Response(
         JSON.stringify({
