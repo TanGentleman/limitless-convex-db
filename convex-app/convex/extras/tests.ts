@@ -343,16 +343,6 @@ export const deleteAllLifelogs = internalMutation({
   },
 });
 
-export const getPreviewLifelog = query({
-  handler: async (ctx) => {
-    const lastLifelog = await ctx.db.query("lifelogs").order("desc").take(1);
-    if (lastLifelog.length === 0) {
-      return null;
-    }
-    return lastLifelog[0];
-  },
-});
-
 
 // NOTE: Currently disabled as it's not needed.
 // /**
