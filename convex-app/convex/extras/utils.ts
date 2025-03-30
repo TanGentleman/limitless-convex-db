@@ -1,3 +1,27 @@
+/**
+ * Formats markdown content for Slack display
+ * 
+ * @param markdown - The raw markdown content to format
+ * @param removeTitle - Whether to remove the first line (typically the title)
+ * @returns Formatted markdown string optimized for Slack
+ */
+export const formatMarkdown = (markdown: string, removeTitle: boolean = false): string => {
+  // Remove title if requested
+  const content = removeTitle 
+    ? markdown.split('\n').slice(1).join('\n')
+    : markdown;
+
+  // Apply markdown transformations
+  return content
+    // Convert headers to bold text
+    .replace(/^#{1,3} (.*$)/gm, '*$1*')
+    // Convert bullet points to Slack-friendly format
+    .replace(/\n- /g, '\n• ');
+};
+
+
+
+
 // Helper functions to make timestamps human readable
 // Use os.env.TIMEZONE to get the timezone
 // Wrapper function for date formatting
@@ -52,3 +76,9 @@ export const markdownEmbeddingOperation = (
   return createOperation(operation, "markdownEmbeddings", success, { message });
 };
 
+export const seedMetadata = {
+  startTime: 0,
+  endTime: 0,
+  syncedUntil: 0,
+  lifelogIds: [],
+};

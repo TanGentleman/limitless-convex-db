@@ -1,4 +1,8 @@
-// This file defines the CRUD operations for the lifelogs table
+/**
+ * This file defines the CRUD (Create, Read, Update, Delete) operations 
+ * and utility functions for the 'lifelogs' table in the Convex database.
+ * It includes handling for associated markdown embeddings.
+ */
 import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
@@ -6,63 +10,74 @@ import { lifelogDoc } from "./types";
 import { internal } from "./_generated/api";
 import { lifelogOperation, markdownEmbeddingOperation } from "./extras/utils";
 
-
+// Default values for querying
 const defaultDirection = "desc";
-const defaultLimit = 1000;
-// CREATE
+const defaultLimit = 1;
+
+// === CREATE ===
+
+/**
+ * Creates multiple lifelog documents in a batch.
+ * Handles the creation of associated markdown embeddings if markdown content exists
+ * and no embeddingId is provided.
+ * 
+ * @param lifelogs - An array of lifelog document data to insert.
+ * @returns An array of the `lifelogId`s (not `_id`) for the created documents.
+ */
 export const createDocs = internalMutation({
   args: {
     lifelogs: v.array(lifelogDoc),
   },
   handler: async (ctx, args) => {
-    const lifelogIds: string[] = [];
-    
-    for (const lifelog of args.lifelogs) {
-      // Handle embedding logic:
-      // 1. If an embeddingId is already provided in the lifelog, use it
-      // 2. If no embeddingId but markdown exists, create a new embedding
-      // 3. If no markdown, set embeddingId to null
-      const embeddingId = lifelog.embeddingId 
-        ? lifelog.embeddingId 
-        : (lifelog.markdown === null 
-            ? null 
-            : await ctx.db.insert("markdownEmbeddings", {
-                lifelogId: lifelog.lifelogId,
-                markdown: lifelog.markdown,
-                embedding: undefined,
-              }));
+    const createdLifelogIds: string[] = [];
 
-      // Insert each lifelog to the database
+    for (const lifelog of args.lifelogs) {
+      let embeddingId: Id<"markdownEmbeddings"> | null = lifelog.embeddingId ?? null;
+
+      // Create a new embedding if markdown exists and no embeddingId was provided
+      if (!embeddingId && lifelog.markdown) {
+        embeddingId = await ctx.db.insert("markdownEmbeddings", {
+          lifelogId: lifelog.lifelogId, // Link embedding to the lifelog
+          markdown: lifelog.markdown,
+          embedding: undefined, // Embedding vector will be generated later
+        });
+      }
+
+      // Insert the lifelog document
       await ctx.db.insert("lifelogs", {
-        lifelogId: lifelog.lifelogId,
-        title: lifelog.title,
-        markdown: lifelog.markdown,
-        contents: lifelog.contents,
-        startTime: lifelog.startTime,
-        endTime: lifelog.endTime,
-        embeddingId: embeddingId,
+        ...lifelog, // Spread operator for conciseness
+        embeddingId: embeddingId, // Use the determined embeddingId
       });
-      
-      lifelogIds.push(lifelog.lifelogId);
+
+      createdLifelogIds.push(lifelog.lifelogId);
     }
-    
-    const operation = lifelogOperation("create", `Created ${lifelogIds.length} new lifelogs`);
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: [operation],
-    });
-    
-    return lifelogIds;
+
+    // Log the creation operation
+    const operation = lifelogOperation("create", `Created ${createdLifelogIds.length} new lifelogs`);
+    await ctx.db.insert("operations", operation);
+
+    return createdLifelogIds;
   },
 });
 
-// READ
+// === READ ===
+
+/**
+ * Reads lifelog documents based on optional time range, sorting, and limit.
+ * 
+ * @param startTime - Optional minimum startTime (inclusive).
+ * @param endTime - Optional maximum endTime (inclusive).
+ * @param direction - Optional sort direction ('asc' or 'desc') based on startTime. Defaults to 'desc'.
+ * @param limit - Optional maximum number of documents to return. Defaults to 10.
+ * @returns An array of lifelog documents matching the criteria.
+ */
 export const readDocs = internalQuery({
   args: {
     startTime: v.optional(v.number()),
     endTime: v.optional(v.number()),
     direction: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
-    includeMarkdown: v.optional(v.boolean()),
-    includeHeadings: v.optional(v.boolean()),
+    // includeMarkdown: v.optional(v.boolean()), // NOTE: Removed as not implemented
+    // includeHeadings: v.optional(v.boolean()), // NOTE: Removed as not implemented
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -82,20 +97,26 @@ export const readDocs = internalQuery({
     const sortedQuery = timeFilteredQuery.order(direction);
     
     // Apply endTime filter if provided
-    const endTimeFilteredQuery = endTime !== undefined 
+    const rangeFilteredQuery = endTime !== undefined
       ? sortedQuery.filter(q => q.lte(q.field("endTime"), endTime))
       : sortedQuery;
     
-    // Get results with limit applied
-    const results = await endTimeFilteredQuery.take(limit);
+    // Apply limit and execute the query
+    const results = await rangeFilteredQuery.take(limit);
     
-    // Filter out markdown or headings if requested
-    // NOTE: Should be handled after the query is executed
-    
+    // NOTE: Filtering 'markdown' or 'headings' post-query was mentioned but not implemented.
+    // If needed, it should be done here by mapping over `results`.
+
     return results;
   },
 });
 
+/**
+ * Retrieves specific lifelog documents by their `lifelogId`.
+ * 
+ * @param lifelogIds - An array of `lifelogId` strings to fetch.
+ * @returns An array of found lifelog documents. Logs warnings for missing IDs.
+ */
 export const getDocsByLifelogId = internalQuery({
   args: {
     lifelogIds: v.array(v.string()),
@@ -103,189 +124,154 @@ export const getDocsByLifelogId = internalQuery({
   handler: async (ctx, args) => {
     const lifelogs: Doc<"lifelogs">[] = [];
     for (const lifelogId of args.lifelogIds) {
-      const lifelog = await ctx.db.query("lifelogs").withIndex("by_lifelog_id", (q) => q.eq("lifelogId", lifelogId)).first();
-      if (lifelog !== null) {
+      // Use the 'by_lifelog_id' index for efficient lookup
+      const lifelog = await ctx.db
+        .query("lifelogs")
+        .withIndex("by_lifelog_id", (q) => q.eq("lifelogId", lifelogId))
+        .first(); // Use first() as lifelogId should be unique (or we only want one)
+
+      if (lifelog) {
         lifelogs.push(lifelog);
       } else {
-        console.log(`WARNING: Lifelog with ID ${lifelogId} not found`);
+        console.warn(`WARNING: Lifelog with lifelogId ${lifelogId} not found`);
       }
     }
     return lifelogs;
   },
 });
 
-// UPDATE
+// === UPDATE ===
+
+/**
+ * Updates multiple lifelog documents in a batch.
+ * Handles changes to markdown content by creating new embeddings and deleting old ones.
+ * 
+ * @param updates - An array of objects, each containing the `_id` of the document to update 
+ *                  and the new `lifelog` data.
+ * @param abortOnError - If true, the entire operation fails if any single update fails 
+ *                       (e.g., document not found). If false (default), skips failed updates 
+ *                       and logs warnings.
+ * @returns An array of the `_id`s of the successfully updated documents.
+ */
 export const updateDocs = internalMutation({
   args: {
     updates: v.array(v.object({
-      id: v.id("lifelogs"),
-      lifelog: lifelogDoc,
+      id: v.id("lifelogs"), // Use the Convex document _id for updates
+      lifelog: lifelogDoc,   // The new data for the lifelog
     })),
-    abortOnError: v.optional(v.boolean()),
+    abortOnError: v.optional(v.boolean()), // Default is false/undefined
   },
   handler: async (ctx, args) => {
-    const updatedLifelogDocIds: Id<"lifelogs">[] = [];
-    const operations: any[] = [];
+    const updatedDocIds: Id<"lifelogs">[] = [];
     const embeddingsToDelete: Id<"markdownEmbeddings">[] = [];
-    
-    // Process each lifelog update in the batch
+
     for (const update of args.updates) {
-      const { id, lifelog } = update;
-      
-      // ---------- VALIDATION ----------
-      // Check if the lifelog exists in the database
+      const { id, lifelog: updatedLifelogData } = update;
+
+      // --- 1. Validation ---
       const existingLifelog = await ctx.db.get(id);
       if (!existingLifelog) {
+        const errorMsg = `Lifelog with _id ${id} not found for update.`;
         if (args.abortOnError) {
-          throw new Error(`Lifelog with ID ${id} not found`);
-        }
-        else {
-          console.log(`WARNING: Lifelog with ID ${id} not found`);
-          continue;
+          throw new Error(errorMsg);
+        } else {
+          console.warn(`WARNING: ${errorMsg} Skipping.`);
+          continue; // Skip this update
         }
       }
-      
-      // ---------- EMBEDDING MANAGEMENT ----------
-      // Handle markdown changes that require new vector embeddings
-      let embeddingId = lifelog.embeddingId;
-      if (lifelog.markdown !== undefined && 
-          lifelog.markdown !== null && 
-          lifelog.markdown !== existingLifelog.markdown) {
-        // Create a new embedding for the updated markdown
-        embeddingId = await ctx.db.insert("markdownEmbeddings", {
-          lifelogId: existingLifelog.lifelogId,
-          markdown: lifelog.markdown,
-          embedding: undefined, // Will be processed by a separate job
+
+      // --- 2. Embedding Management ---
+      let newEmbeddingId: Id<"markdownEmbeddings"> | null | undefined = updatedLifelogData.embeddingId; // Start with provided ID
+
+      // Check if markdown content has changed and is not null/undefined
+      const markdownChanged = updatedLifelogData.markdown !== undefined &&
+                              updatedLifelogData.markdown !== null &&
+                              updatedLifelogData.markdown !== existingLifelog.markdown;
+
+      if (markdownChanged) {
+        // Create a new embedding record
+        newEmbeddingId = await ctx.db.insert("markdownEmbeddings", {
+          lifelogId: existingLifelog.lifelogId, // Use the stable lifelogId
+          markdown: updatedLifelogData.markdown!, // Not null/undefined due to check above
+          embedding: undefined, // To be generated later
         });
-        
-        // Track old embedding for deletion
+
+        // Mark the old embedding for deletion, if it exists
         if (existingLifelog.embeddingId) {
           embeddingsToDelete.push(existingLifelog.embeddingId);
         }
+      } else {
+         // If markdown didn't change, ensure we keep the existing embeddingId 
+         // unless explicitly set to null/undefined in the update data.
+         // If updatedLifelogData.embeddingId is undefined, keep the existing one.
+         newEmbeddingId = updatedLifelogData.embeddingId === undefined 
+            ? existingLifelog.embeddingId 
+            : updatedLifelogData.embeddingId;
       }
-      
-      // ---------- DATABASE UPDATE ----------
-      // Update the lifelog with new data, ensuring embedding ID is preserved
+
+
+      // --- 3. Database Update ---
       await ctx.db.patch(id, {
-        ...lifelog,
-        embeddingId: embeddingId || lifelog.embeddingId,
+        ...updatedLifelogData,
+        embeddingId: newEmbeddingId, // Use the determined embeddingId
       });
-      
-      updatedLifelogDocIds.push(id);
+
+      updatedDocIds.push(id);
     }
-    
-    // ---------- CLEANUP EMBEDDINGS ----------
-    // Delete all tracked embeddings at once
+
+    // --- 4. Cleanup Old Embeddings ---
     if (embeddingsToDelete.length > 0) {
-      await ctx.runMutation(internal.markdownEmbeddings.deleteDocs, { 
-        ids: embeddingsToDelete 
+      // Call the delete function for markdownEmbeddings
+      await ctx.runMutation(internal.markdownEmbeddings.deleteDocs, {
+        ids: embeddingsToDelete,
       });
-      
-      // Record the deletion operation
-      const deleteEmbeddingOperation = markdownEmbeddingOperation(
-        "delete", 
-        `Deleted ${embeddingsToDelete.length} old embeddings`
+
+      // Log the embedding deletion operation
+      const deleteEmbeddingOp = markdownEmbeddingOperation(
+        "delete",
+        `Deleted ${embeddingsToDelete.length} old markdown embeddings due to lifelog updates.`
       );
-      operations.push(deleteEmbeddingOperation);
+      await ctx.db.insert("operations", deleteEmbeddingOp);
     }
-    
-    // ---------- OPERATION LOGGING ----------
-    // Record the batch update operation
-    operations.push(lifelogOperation("update", `Updated ${updatedLifelogDocIds.length} lifelogs`));
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: operations,
-    });
-    
-    return updatedLifelogDocIds;
+
+    // --- 5. Operation Logging ---
+    if (updatedDocIds.length > 0) {
+      const operation = lifelogOperation("update", `Updated ${updatedDocIds.length} lifelogs`);
+      await ctx.db.insert("operations", operation);
+    }
+
+    return updatedDocIds;
   },
 });
 
-// DELETE
+
+// === DELETE ===
+
+/**
+ * Deletes multiple lifelog documents by their `_id`.
+ * Note: This currently does *not* automatically delete associated markdown embeddings.
+ * Embeddings are typically deleted during updates or potentially via a separate cleanup process.
+ * 
+ * @param ids - An array of `_id`s of the lifelog documents to delete.
+ * @returns The array of `_id`s that were requested for deletion.
+ */
 export const deleteDocs = internalMutation({
   args: {
     ids: v.array(v.id("lifelogs")),
   },
   handler: async (ctx, args) => {
-    
     for (const id of args.ids) {
-      await ctx.db.delete(id);
+      await ctx.db.delete(id); 
+      // Potential enhancement: Check if lifelog had an embeddingId and delete that too.
     }
-    
-    const operation = lifelogOperation("delete", `Deleted ${args.ids.length} lifelogs`);
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: [operation],
-    });
-  },
-});
 
-// Clear all lifelogs
-export const deleteAll = internalMutation({
-  args: {
-    destructive: v.boolean(),
-  },
-  handler: async (ctx, args) => {
-    const lifelogs = await ctx.db.query("lifelogs").collect();
-    
-    if (args.destructive) {
-      // Delete each lifelog
-      for (const lifelog of lifelogs) {
-        await ctx.db.delete(lifelog._id);
-      }
-    } 
-    else {
-      console.log("NOTE: Destructive argument is false. Skipping deletion of lifelogs.");
+    // Log the deletion operation
+    if (args.ids.length > 0) {
+      const operation = lifelogOperation("delete", `Deleted ${args.ids.length} lifelogs`);
+      await ctx.db.insert("operations", operation);
     }
     
-    const operation = lifelogOperation("delete", `Deleted all ${lifelogs.length} lifelogs. (destructive: ${args.destructive})`);
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: [operation],
-    });
-    
-    return { ids: lifelogs.map((lifelog) => lifelog.lifelogId) };
-  },
-});
-
-// Delete duplicate lifelogs, keeping only the oldest version of each
-export const deleteDuplicates = internalMutation({
-  handler: async (ctx) => {
-    // Get all lifelogs
-    const lifelogs = await ctx.db.query("lifelogs").collect();
-    
-    // Create a map to track the oldest document for each lifelogId
-    const oldestLifelogs = new Map<string, Doc<"lifelogs">>();
-    
-    // Find the oldest document for each lifelogId
-    for (const lifelog of lifelogs) {
-      const existingLifelog = oldestLifelogs.get(lifelog.lifelogId);
-      
-      // If we haven't seen this ID before, or this is older than what we have, keep it
-      if (!existingLifelog || lifelog._creationTime < existingLifelog._creationTime) {
-        oldestLifelogs.set(lifelog.lifelogId, lifelog);
-      }
-    }
-    
-    // Identify duplicates (all documents except the oldest for each ID)
-    const duplicatesToDelete: Id<"lifelogs">[] = [];
-    for (const lifelog of lifelogs) {
-      const oldestLifelog = oldestLifelogs.get(lifelog.lifelogId);
-      if (oldestLifelog && lifelog._id !== oldestLifelog._id) {
-        duplicatesToDelete.push(lifelog._id);
-      }
-    }
-    
-    // Delete the duplicates
-    for (const id of duplicatesToDelete) {
-      await ctx.db.delete(id);
-    }
-    
-    const operation = lifelogOperation("delete", `Deleted ${duplicatesToDelete.length} duplicate lifelogs`);
-    await ctx.runMutation(internal.operations.createDocs, {
-      operations: [operation],
-    });
-    
-    return { 
-      deletedCount: duplicatesToDelete.length,
-      remainingCount: oldestLifelogs.size
-    };
+    // Return the list of IDs requested for deletion
+    return args.ids; 
   },
 });

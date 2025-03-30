@@ -106,3 +106,35 @@ export const convertToConvexFormat = (lifelogs: LimitlessLifelog[]): ConvexLifel
       };
   });
 }
+
+/**
+ * Converts lifelogs from Convex database format to API format.
+ * 
+ * @param lifelogs - Array of lifelogs from the Convex database
+ * @returns Array of lifelogs in Limitless API format
+ */
+export const convertToLimitlessFormat = (lifelogs: ConvexLifelogs[]): LimitlessLifelog[] => {
+  return lifelogs.map(log => {
+    return {
+      id: log.lifelogId,
+      title: log.title,
+      markdown: log.markdown,
+      startTime: new Date(log.startTime).toISOString(),
+      endTime: new Date(log.endTime).toISOString(),
+      contents: log.contents.map(content => {
+        return {
+          type: content.type,
+          content: content.content,
+          startTime: content.startTime ? new Date(content.startTime).toISOString() : undefined,
+          endTime: content.endTime ? new Date(content.endTime).toISOString() : undefined,
+          startOffsetMs: content.startOffsetMs,
+          endOffsetMs: content.endOffsetMs,
+          children: content.children,
+          speakerName: content.speakerName,
+          speakerIdentifier: content.speakerIdentifier
+        };
+      })
+    };
+  });
+}
+

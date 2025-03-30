@@ -34,6 +34,7 @@ You can port data easily from the Limitless pendant to a Convex database. All yo
 
 5. Set environment variables (This is important!):
    - Via [Convex Dashboard](https://dashboard.convex.dev/): Add `LIMITLESS_API_KEY` and `TIMEZONE`
+   - Optionally add `SLACK_WEBHOOK_URL` to enable Slack notifications
    - Or via CLI:
      ```bash
      npx convex env set LIMITLESS_API_KEY=your_limitless_api_key
@@ -45,7 +46,7 @@ You can port data easily from the Limitless pendant to a Convex database. All yo
    ```bash
    cd python-src
    pip install -r requirements.txt
-   python main.py
+   python sync.py
    ```
    See `python-src/README.md` for more details.
 

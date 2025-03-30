@@ -4,30 +4,61 @@ import { LimitlessLifelog, convertToConvexFormat } from "./types";
 import { formatDate, metadataOperation } from "./extras/utils";
 
 /**
- * Request parameters for retrieving lifelogs.
- * Matches the Limitless API query parameters.
+ * Request parameters for retrieving lifelogs from the Limitless API.
+ * 
+ * These parameters match the Limitless API query parameters with some
+ * additional handling specific to our sync implementation.
  */
 export type LifelogRequest = {
-  timezone?: string;      // IANA timezone specifier. Default: UTC
-  date?: string;          // Format: YYYY-MM-DD
-  start?: string;         // ISO-8601 format (YYYY-MM-DD or YYYY-MM-DD HH:mm:SS)
-  end?: string;           // ISO-8601 format (YYYY-MM-DD or YYYY-MM-DD HH:mm:SS)
-  cursor?: string;        // Cursor for pagination
-  direction?: "asc" | "desc"; // Sort direction. Default: "desc"
-  include_markdown?: boolean; // Include markdown content. Default: true
-  include_headings?: boolean; // Include headings. Default: true
-  limit?: number;         // Maximum entries to return
+  /** IANA timezone specifier (e.g. "America/New_York"). Default: UTC */
+  timezone?: string;
+  
+  /** Format: YYYY-MM-DD - Not used in current implementation, use start/end instead */
+  date?: string;
+  
+  /** ISO-8601 format start date - Automatically determined by sync logic based on metadata */
+  start?: string;
+  
+  /** ISO-8601 format end date - Automatically determined by sync logic based on metadata */
+  end?: string;
+  
+  /** Pagination cursor returned from previous API calls */
+  cursor?: string;
+  
+  /** 
+   * Sort direction for results. Required by fetchLifelogs.
+   * - "asc": oldest first (used for initial sync)
+   * - "desc": newest first (used for subsequent syncs)
+   */
+  direction?: "asc" | "desc";
+  
+  /** Whether to include markdown content in results. Default: true */
+  includeMarkdown?: boolean;
+  
+  /** Whether to include headings in results. Default: true */
+  includeHeadings?: boolean;
+  
+  /** Maximum entries to return per batch - Handled internally by fetchLifelogs */
+  limit?: number;
 }
 
-const defaultTotalLimit = 50;
+// Number of lifelogs to fetch per API request
 const defaultBatchSize = 10;
-const defaultDirection = "asc";
 
 /**
- * Synchronizes lifelogs from Limitless API to the Convex database.
+ * Synchronizes lifelogs from the Limitless API to the Convex database.
  * 
- * Fetches new lifelogs, filters duplicates, and stores them in the database.
- * Updates metadata with sync information and logs operations.
+ * This action implements a smart sync strategy that adapts based on existing data:
+ * - First Sync: Fetches all lifelogs in ascending order (oldest first)
+ * - Subsequent Syncs: Fetches newest lifelogs in descending order until a known lifelog is found
+ * 
+ * The function handles:
+ * - Determining the appropriate sync strategy
+ * - Fetching lifelogs from the Limitless API
+ * - Filtering out duplicates
+ * - Converting and storing new lifelogs
+ * - Updating metadata with the latest sync information
+ * - Logging operations for monitoring
  * 
  * @returns Promise<boolean> - true if new lifelogs were added, false otherwise
  */
@@ -35,245 +66,198 @@ export const syncLimitless = internalAction({
     handler: async (ctx) => {
         // 1. Retrieve metadata about previously synced lifelogs
         const metadata = await ctx.runMutation(internal.extras.tests.getMetadataDoc);
-        console.log(`Metadata: ${metadata.lifelogIds.length} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? formatDate(metadata.syncedUntil) : "N/A"}`);
-        
-        // 1.5 Try a partial sync
-        const partialLifelogs = await fetchLifelogs({
-            limit: 10,
-            direction: "desc",
-            include_markdown: true,
-            include_headings: true
-        });
-        
-        // Filter duplicates from partial sync
-        const newPartialLifelogs = filterDuplicateLifelogs(partialLifelogs, metadata.lifelogIds);
-        
-        // Handle partial sync results
-        if (newPartialLifelogs.length === 0) {
-            // No new lifelogs found, sync not needed
-            const operation = metadataOperation("sync", `${metadata.lifelogIds.length} lifelogs up to date.`, true);
-            await ctx.runMutation(internal.operations.createDocs, {
-                operations: [operation],
-            });
-            return false;
-        } else if (newPartialLifelogs.length < 10) {
-            // Process the partial list of new lifelogs in ascending order
-            const convexLifelogs = convertToConvexFormat(newPartialLifelogs.reverse());
-            const lifelogIds = await ctx.runMutation(internal.lifelogs.createDocs, {
-                lifelogs: convexLifelogs
-            });
-            
-            // Update metadata
-            const operation = metadataOperation("sync", `Synced ${newPartialLifelogs.length} new lifelogs`, true);
-            await ctx.runMutation(internal.metadata.createDocs, {
-                metadataDocs: [{
-                    startTime: metadata.startTime === 0 ? convexLifelogs[0].startTime : metadata.startTime,
-                    endTime: convexLifelogs[convexLifelogs.length - 1].endTime,
-                    lifelogIds: metadata.lifelogIds.concat(lifelogIds),
-                    syncedUntil: Math.max(metadata.syncedUntil, convexLifelogs[convexLifelogs.length - 1].endTime)
-                }]
-            });
-            await ctx.runMutation(internal.operations.createDocs, {
-                operations: [operation],
-            });
-            return true;
-        }
-        
-        // If we got 10 items, proceed with full sync
-        const lifelogRequest: LifelogRequest = {
-            start: metadata.startTime === 0 ? undefined : new Date(metadata.syncedUntil).toISOString(),
-        }
-        const lifelogs = await fetchLifelogs(lifelogRequest);
+        const existingIdsSet = new Set<string>(metadata.lifelogIds);
+        console.log(`Metadata: ${existingIdsSet.size} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? formatDate(metadata.syncedUntil) : "N/A"}`);
 
-        // Filter duplicates from full sync
-        const newLifelogs = filterDuplicateLifelogs(lifelogs, metadata.lifelogIds);
-        
-        if (newLifelogs.length === 0) {
-            const operation = metadataOperation("sync", `All ${lifelogs.length} fetched lifelogs are duplicates.`, false);
-            await ctx.runMutation(internal.operations.createDocs, {
-                operations: [operation],
-            });
+        // 2. Determine sync strategy
+        const isFirstSync = metadata.syncedUntil === 0;
+        const direction = isFirstSync ? "asc" : "desc";
+        console.log(`Sync strategy: ${isFirstSync ? 'First sync (asc)' : 'Subsequent sync (desc)'}`);
+
+        // 3. Fetch lifelogs using the chosen strategy
+        const fetchArgs: LifelogRequest = {
+            direction: direction,
+            includeMarkdown: true, // Always include content for now
+            includeHeadings: true, // Always include headings for now
+        };
+        const fetchedLifelogs = await fetchLifelogs(fetchArgs, existingIdsSet);
+
+        // 4. Process fetched lifelogs
+        if (fetchedLifelogs.length === 0) {
+            console.log("No new lifelogs found from API.");
+            const operation = metadataOperation("sync", `No new lifelogs found. ${existingIdsSet.size} lifelogs up to date.`, true);
+            await ctx.runMutation(internal.operations.createDocs, { operations: [operation] });
             return false;
-        } else {
-            console.log(`Found ${newLifelogs.length} new lifelogs to add.`);
         }
-        
-        // Convert lifelogs to Convex format and store them
+
+        // Ensure lifelogs are in ascending order for processing and metadata update
+        const chronologicallyOrderedLifelogs = direction === "desc"
+            ? fetchedLifelogs.reverse() // Reverse descending results
+            : fetchedLifelogs; // Ascending results are already correct
+
+        // Filter out any duplicates missed by fetchLifelogs (safeguard)
+        // This shouldn't be necessary if fetchLifelogs works correctly for 'desc'
+        const newLifelogs = chronologicallyOrderedLifelogs.filter(log => !existingIdsSet.has(log.id));
+
+        if (newLifelogs.length === 0) {
+            console.log(`Fetched ${fetchedLifelogs.length} lifelogs, but all were already known duplicates.`);
+            // Log that we found duplicates but nothing new
+             const operation = metadataOperation("sync", `Fetched ${fetchedLifelogs.length} lifelogs, all duplicates. ${existingIdsSet.size} lifelogs up to date.`, true);
+             await ctx.runMutation(internal.operations.createDocs, { operations: [operation] });
+            return false;
+        }
+
+        console.log(`Found ${newLifelogs.length} new lifelogs to add.`);
+
+        // 5. Convert lifelogs to Convex format and store them
         const convexLifelogs = convertToConvexFormat(newLifelogs);
-        const lifelogIds = await ctx.runMutation(internal.lifelogs.createDocs, {
+        const newLifelogIds = await ctx.runMutation(internal.lifelogs.createDocs, {
             lifelogs: convexLifelogs
         });
-        
-        // Update metadata table
-        if (lifelogs.length > 0) {
-            const operation = metadataOperation("sync", `Synced ${lifelogs.length} lifelogs, added ${lifelogIds.length} new lifelogs`, true);
-            await ctx.runMutation(internal.metadata.createDocs, {
-                metadataDocs: [{
-                    startTime: metadata.startTime === 0 ? convexLifelogs[0].startTime : metadata.startTime,
-                    endTime: convexLifelogs[convexLifelogs.length - 1].endTime,
-                    lifelogIds: metadata.lifelogIds.concat(lifelogIds),
-                    syncedUntil: Math.max(metadata.syncedUntil, convexLifelogs[convexLifelogs.length - 1].endTime)
-                }]
-            });
-            await ctx.runMutation(internal.operations.createDocs, {
-                operations: [operation],
-            });
-        }
-        
-        console.log("Sync completed successfully");
+
+        // 6. Update metadata table
+        const newStartTime = convexLifelogs[0].startTime;
+        const newEndTime = convexLifelogs[convexLifelogs.length - 1].endTime;
+
+        const updatedStartTime = isFirstSync ? newStartTime : Math.min(metadata.startTime, newStartTime);
+        const updatedEndTime = Math.max(metadata.endTime, newEndTime);
+        // syncedUntil should reflect the timestamp of the latest known record
+        const updatedSyncedUntil = updatedEndTime;
+        const updatedLifelogIds = metadata.lifelogIds.concat(newLifelogIds);
+
+        const operation = metadataOperation("sync", `Added ${newLifelogs.length} new lifelogs. Total: ${updatedLifelogIds.length}.`, true);
+        await ctx.runMutation(internal.metadata.createDocs, {
+            metadataDocs: [{
+                startTime: updatedStartTime,
+                endTime: updatedEndTime,
+                lifelogIds: updatedLifelogIds,
+                syncedUntil: updatedSyncedUntil
+            }]
+        });
+        await ctx.runMutation(internal.operations.createDocs, {
+            operations: [operation],
+        });
+
+        console.log(`Sync completed successfully. Added ${newLifelogs.length} lifelogs.`);
         return true;
     },
 });
 
 /**
- * Checks if a refresh is needed by comparing latest lifelog with existing IDs.
- * 
- * @param existingIds - Array of existing lifelog IDs
- * @returns Promise<boolean|null> - true if new lifelogs available, false if not, null on error
+ * Fetches lifelogs from the Limitless API with pagination and optional duplicate detection.
+ *
+ * - Fetches in batches using `defaultBatchSize`.
+ * - If `direction` is "desc" and `existingIds` are provided, stops fetching when a duplicate ID is found.
+ * - If `direction` is "asc", fetches pages until no more data is available.
+ *
+ * @param args - Request parameters for the API (must include 'direction').
+ * @param existingIds - Set of existing lifelog IDs to detect duplicates for 'desc' fetches.
+ * @returns Promise<LimitlessLifelog[]> - Array of *new* lifelogs fetched from the API.
+ *                                       For 'desc' direction, these will be newest first.
+ *                                       For 'asc' direction, these will be oldest first.
  */
-async function isRefreshNeeded(existingIds: string[]): Promise<boolean | null> {
-    try {
-        // If we have no existing lifelogs, we definitely need a refresh
-        if (existingIds.length === 0) {
-            console.log("No existing lifelogs found! Refresh needed.");
-            return true;
-        }
-        
-        // Fetch only the most recent lifelog for efficiency
-        const lifelogs = await fetchLifelogs({
-            limit: 1,
-            direction: "desc", // Get the newest one
-            include_markdown: false, // Skip content for faster response
-            include_headings: false, // Skip headings for faster response
-        });
-        
-        // If no lifelogs returned, no refresh needed
-        if (lifelogs.length === 0) return false;
-        
-        // Check if the latest lifelog is already in our database
-        return !existingIds.includes(lifelogs[0].id);
-    } catch (error) {
-        console.error("Error checking for refresh.:", error);
-        // On error, assume no refresh is needed to prevent potential issues
-        return null;
-    }
-}
-
-
-/**
- * Filters out duplicate lifelogs that already exist in the database.
- * 
- * @param lifelogs - Array of lifelogs to filter
- * @param existingIds - Array of existing lifelog IDs
- * @returns Array of new lifelogs
- */
-function filterDuplicateLifelogs(lifelogs: LimitlessLifelog[], existingIds: string[]): LimitlessLifelog[] {
-    return lifelogs.filter(log => !existingIds.includes(log.id));
-}
-
-
-/**
- * Fetches lifelogs from the Limitless API with pagination support.
- * 
- * @param args - Request parameters for the API
- * @param optionalExistingIds - Optional array of existing IDs for duplicate detection
- * @returns Promise<LimitlessLifelog[]> - Array of lifelogs from the API
- */
-async function fetchLifelogs(args: LifelogRequest, optionalExistingIds: string[] = []) {
+async function fetchLifelogs(args: LifelogRequest, existingIds: Set<string>): Promise<LimitlessLifelog[]> {
     const API_KEY = process.env.LIMITLESS_API_KEY;
     if (!API_KEY) {
-        console.log('No api key.')
+        console.error("LIMITLESS_API_KEY environment variable not set");
         throw new Error("LIMITLESS_API_KEY environment variable not set");
     }
-    
-    const allLifelogs: LimitlessLifelog[] = [];
-    let cursor = args.cursor;
-    const limit = args.limit || defaultTotalLimit;
-    let batchSize = args.limit || defaultBatchSize;
-    
-    // If limit is not null, set a batch size and fetch until we reach the limit
-    if (limit !== null) {
-        batchSize = Math.min(batchSize, limit);
+    if (!args.direction) {
+         throw new Error("Fetch direction ('asc' or 'desc') must be specified.");
     }
-    
+
+    const allNewLifelogs: LimitlessLifelog[] = [];
+    let cursor = args.cursor;
+    const batchSize = defaultBatchSize; // Use fixed batch size for pagination
+
     while (true) {
-        const params: LifelogRequest = {
+        const params: Record<string, string | number | boolean> = {
             limit: batchSize,
-            include_markdown: args.include_markdown === false ? false : true,
-            include_headings: args.include_headings === false ? false : true,
-            direction: args.direction || defaultDirection,
+            includeMarkdown: args.includeMarkdown === false ? false : true,
+            includeHeadings: args.includeHeadings === false ? false : true,
+            direction: args.direction,
             timezone: args.timezone || process.env.TIMEZONE || "UTC"
         };
-        
-        if (args.start !== undefined) {
-            params.start = args.start;
-        }
-        
+
         if (cursor) {
             params.cursor = cursor;
         }
-        
+
         // Convert params to URL query string
         const queryParams = new URLSearchParams();
         for (const [key, value] of Object.entries(params)) {
-            if (value !== undefined) {
+            // Skip undefined values, handle boolean conversion
+             if (value !== undefined) {
                 queryParams.append(key, String(value));
             }
         }
-        
+
         try {
             const url = `https://api.limitless.ai/v1/lifelogs?${queryParams.toString()}`;
-            console.log(`API Request: ${url}`);
+            console.log(`Fetching batch: ${url}`);
             const response = await fetch(url, {
-                headers: {
-                    "X-API-Key": API_KEY
-                },
+                headers: { "X-API-Key": API_KEY },
                 method: "GET",
             });
-            
+
             if (!response.ok) {
+                console.error(`HTTP error! Status: ${response.status}, Body: ${await response.text()}`);
                 throw new Error(`HTTP error! Status: ${response.status}`);
             }
-            
-            const data = await response.json();
-            const lifelogs: LimitlessLifelog[] = data.data?.lifelogs || [];
 
-            if (lifelogs.length === 0) {
-                console.log(`No lifelogs found in this batch.`);
+            const data = await response.json();
+            const lifelogsInBatch: LimitlessLifelog[] = data.data?.lifelogs || [];
+
+            if (lifelogsInBatch.length === 0) {
+                console.log(`No lifelogs found in this batch. Ending fetch.`);
+                break; // No more data from API
+            }
+
+            let foundDuplicateInBatch = false;
+            const batchToAdd: LimitlessLifelog[] = [];
+
+            if (args.direction === "desc" && existingIds.size > 0) {
+                // Check for duplicates only in descending syncs
+                for (const log of lifelogsInBatch) {
+                    if (existingIds.has(log.id)) {
+                        console.log(`Found existing lifelog ID ${log.id} (endTime: ${log.endTime ? formatDate(log.endTime) : 'N/A'}). Stopping fetch.`);
+                        foundDuplicateInBatch = true;
+                        break; // Stop processing this batch
+                    }
+                    batchToAdd.push(log); // Add if not a duplicate
+                }
+            } else {
+                // Ascending sync or no existing IDs, add all from batch
+                batchToAdd.push(...lifelogsInBatch);
+            }
+
+            // Add the verified new logs from this batch
+            allNewLifelogs.push(...batchToAdd);
+
+            // Stop pagination if a duplicate was found in 'desc' mode
+            if (foundDuplicateInBatch) {
                 break;
             }
-            
-            // Check if the last lifelog is a duplicate
-            if (optionalExistingIds) {
-              const lastLifelog = lifelogs[lifelogs.length - 1];
-              if (optionalExistingIds.includes(lastLifelog.id)) {
-                console.log(`Dupe! End time: ${lastLifelog.endTime ? formatDate(lastLifelog.endTime) : "N/A"}`);
-              }
-            }
-            
-            // Add lifelogs from this batch
-            allLifelogs.push(...lifelogs);
-            
-            // Check if we've reached the requested limit
-            if (limit && allLifelogs.length >= limit) {
-                return allLifelogs.slice(0, limit);
-            }
-            
-            // Get the next cursor from the response
+
+            // Get the next cursor for pagination
             const nextCursor = data.meta?.lifelogs?.nextCursor;
-            
-            // If there's no next cursor or we got fewer results than requested, we're done
-            if (!nextCursor || lifelogs.length < batchSize) {
+
+            // Stop if there's no next cursor or if the API returned fewer results than requested
+            if (!nextCursor || lifelogsInBatch.length < batchSize) {
+                 console.log(`No next cursor or received fewer items than batch size (${lifelogsInBatch.length}/${batchSize}). Ending fetch.`);
                 break;
             }
-            
-            console.log(`Fetched ${lifelogs.length} lifelogs and received cursor`);
+
+            console.log(`Fetched ${lifelogsInBatch.length} lifelogs, continuing with next cursor...`);
             cursor = nextCursor;
+
         } catch (error) {
-            console.error("Error fetching lifelogs:", error);
-            break;
+            console.error("Error fetching lifelogs batch:", error);
+            // Depending on the error, might want to retry or handle differently
+            break; // Stop fetching on error
         }
     }
-    
-    return allLifelogs;
+
+    console.log(`Fetch complete. Returning ${allNewLifelogs.length} new lifelogs.`);
+    return allNewLifelogs;
 }
