@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalMutation, internalQuery, } from "../_generated/server";
+import { internalMutation, internalQuery, query } from "../_generated/server";
 import { lifelogOperation, metadataOperation } from "./utils";
 import { Id } from "../_generated/dataModel";
 import { seedMetadata } from "./utils";
@@ -222,6 +222,17 @@ export const deleteAllLifelogs = internalMutation({
     };
   },
 });
+
+export const getPreviewLifelog = query({
+  handler: async (ctx) => {
+    const lastLifelog = await ctx.db.query("lifelogs").order("desc").take(1);
+    if (lastLifelog.length === 0) {
+      return null;
+    }
+    return lastLifelog[0];
+  },
+});
+
 
 // NOTE: Currently disabled as it's not needed.
 // /**
