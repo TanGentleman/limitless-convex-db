@@ -123,7 +123,7 @@ export const sendSlackNotification = internalAction({
     
     // If a lifelog ID is provided, fetch and format that lifelog
     if (args.lifelogId) {
-      const lifelog = await ctx.runQuery(internal.lifelogs.getDocsByLifelogId, { lifelogIds: [args.lifelogId] });
+      const lifelog = await ctx.runQuery(internal.lifelogs.getDocsById, { ids: [args.lifelogId] });
       if (lifelog.length > 0) {
         const blocks = getSlackBlocks({ type: "lifelog", data: lifelog[0] });
         await webhook.send({ blocks });

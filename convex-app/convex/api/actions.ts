@@ -1,10 +1,6 @@
-"use node";
-
 import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { getWebhook } from "../extras/hooks";
-import { formatMarkdown, formatDate } from "../extras/utils";
 
 export const getLastLifelog = action({
     args: {
