@@ -7,6 +7,126 @@ import { seedMetadata } from "./utils";
 
 const defaultLimit = 1;
 
+// Define return type for the undoSync function
+type UndoSyncResult = {
+  success: boolean;
+  message?: string;
+  deletedLifelogIds?: string[];
+  deletedLifelogCount?: number;
+  deletedEmbeddingCount?: number;
+  deletedMetadataCount?: number;
+  dryRun: boolean;
+};
+
+// New undoSync function to delete the last sync and its associated data
+export const undoSync = internalMutation({
+  args: {
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    message: v.optional(v.string()),
+    deletedLifelogIds: v.optional(v.array(v.string())),
+    deletedLifelogCount: v.optional(v.number()),
+    deletedEmbeddingCount: v.optional(v.number()),
+    deletedMetadataCount: v.optional(v.number()),
+    dryRun: v.boolean(),
+  }),
+  handler: async (ctx, args): Promise<UndoSyncResult> => {
+    const isDryRun = args.dryRun ?? false;
+    
+    // 1. Get the latest metadata document
+    const latestMetadata = await ctx.db.query("metadata").order("desc").first();
+    
+    if (!latestMetadata) {
+      throw new Error("No metadata document found to undo sync");
+    }
+    
+    // 2. Get the previous metadata document (if any)
+    const previousMetadata = await ctx.db.query("metadata")
+      .order("desc")
+      .filter(q => q.lt(q.field("_creationTime"), latestMetadata._creationTime))
+      .first();
+    
+    // 3. Calculate which lifelogIds were added in the last sync
+    let lifelogIdsToDelete: string[] = [];
+    
+    if (previousMetadata) {
+      // If we have a previous metadata document, remove the IDs that existed before
+      const previousIds = new Set(previousMetadata.lifelogIds);
+      lifelogIdsToDelete = latestMetadata.lifelogIds.filter(id => !previousIds.has(id));
+    } else {
+      // If there's no previous metadata, all IDs in the latest were added in the last sync
+      lifelogIdsToDelete = latestMetadata.lifelogIds;
+    }
+    
+    if (lifelogIdsToDelete.length === 0) {
+      // No lifelogs to delete
+      const operation = metadataOperation("sync", "No lifelogs found to delete from last sync", true);
+      // Use direct db.insert instead of runMutation
+      await ctx.db.insert("operations", operation);
+      
+      return {
+        success: false,
+        message: "No lifelogs found to delete from last sync",
+        dryRun: isDryRun,
+      };
+    }
+    
+    // 4. Get the actual lifelog documents to delete
+    const lifelogsToDelete = await ctx.runQuery(internal.lifelogs.getDocsByLifelogId, {
+      lifelogIds: lifelogIdsToDelete,
+    });
+    
+    // Track the counts for reporting
+    const deletedMetadataCount = isDryRun ? 0 : 1;
+    let deletedLifelogCount = 0;
+    let deletedEmbeddingCount = 0;
+    
+    if (!isDryRun) {
+      // 5. Delete associated markdown embeddings and lifelogs
+      for (const lifelog of lifelogsToDelete) {
+        // Delete embedding if it exists
+        if (lifelog.embeddingId !== null) {
+          await ctx.db.delete(lifelog.embeddingId);
+          deletedEmbeddingCount++;
+        }
+        
+        // Delete the lifelog itself
+        await ctx.db.delete(lifelog._id);
+        deletedLifelogCount++;
+      }
+      
+      // 6. Delete the latest metadata document
+      await ctx.db.delete(latestMetadata._id);
+    } else {
+      // Just count what would be deleted
+      deletedLifelogCount = lifelogsToDelete.length;
+      deletedEmbeddingCount = lifelogsToDelete.filter(log => log.embeddingId !== null).length;
+    }
+    
+    // 7. Log the operation
+    const operation = lifelogOperation(
+      "delete", 
+      `Undo sync: Deleted ${deletedLifelogCount} lifelogs, ${deletedEmbeddingCount} embeddings, and ${deletedMetadataCount} metadata document`,
+      true
+    );
+    
+    // Use direct db.insert instead of runMutation
+    await ctx.db.insert("operations", operation);
+    
+    // 8. Return the result
+    return {
+      success: true,
+      deletedLifelogIds: lifelogsToDelete.map(log => log.lifelogId),
+      deletedLifelogCount,
+      deletedEmbeddingCount,
+      deletedMetadataCount,
+      dryRun: isDryRun,
+    };
+  },
+});
+
 export const deleteMetadataDocs = internalMutation({
   args: {
     dryRun: v.optional(v.boolean()),
