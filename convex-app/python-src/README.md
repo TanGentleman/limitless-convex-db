@@ -1,6 +1,18 @@
 # Python Integration with Convex
 
-You can interact with the Convex backend using public functions. For instance, the `main.py` file utilizes the `sync` function from `convex-app/extras/hooks.ts` to keep up to date with the Limitless API.
+# Python Integration with Convex
+
+This integration allows you to interact with your Convex backend from Python applications. You can query data, run mutations, and subscribe to real-time updates using the official Convex Python client.
+
+## Features
+
+- **Query Lifelogs**: Fetch your lifelog entries with filtering options
+- **Slack Notifications**: Trigger notifications when new data is available
+- **Scheduled Syncs**: Automate data synchronization with cron jobs
+- **HTTP Fallback**: Use standard HTTP requests when needed
+
+Check out the `main.py` file for examples of both client-based and HTTP-based interactions with your Convex deployment.
+
 
 ## Prerequisites
 
@@ -49,5 +61,5 @@ Before you begin, ensure you have:
 
 Execute the main script:
 ```bash
-python main.py
+python main.py --help
 ```
