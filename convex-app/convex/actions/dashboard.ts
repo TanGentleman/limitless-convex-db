@@ -6,6 +6,7 @@ import { Doc } from "../_generated/dataModel";
 // Define a type for the lifelog document
 type Lifelog = Doc<"lifelogs">;
 
+// Note: Use a query instead if slack notification is not needed
 export const getLastLifelog = action({
     args: {
       sendNotification: v.optional(v.boolean())
