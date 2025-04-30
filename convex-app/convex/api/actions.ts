@@ -1,13 +1,17 @@
 import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { Doc, Id } from "../_generated/dataModel";
+
+// Define a type for the lifelog document
+type Lifelog = Doc<"lifelogs">;
 
 export const getLastLifelog = action({
     args: {
       sendNotification: v.optional(v.boolean())
     },
-    handler: async (ctx, args) => {
-      const lastLifelog = await ctx.runQuery(internal.lifelogs.readDocs, {
+    handler: async (ctx, args): Promise<Lifelog> => {
+      const lastLifelog: Lifelog[] = await ctx.runQuery(internal.lifelogs.readDocs, {
         limit: 1,
         direction: "desc",
       });
@@ -30,8 +34,8 @@ export const getLastLifelog = action({
     args: {
       sendNotification: v.optional(v.boolean())
     },
-    handler: async (ctx, args) => {
-      const isNewLifelogs = await ctx.runAction(internal.sync.syncLimitless);
+    handler: async (ctx, args): Promise<boolean> => {
+      const isNewLifelogs: boolean = await ctx.runAction(internal.sync.syncLimitless);
       if (args.sendNotification === true) {
         await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
           operation: "sync",
@@ -53,7 +57,7 @@ export const getLastLifelog = action({
       hours: v.optional(v.number()),
       days: v.optional(v.number()),
     },
-    handler: async (ctx, args) => {
+    handler: async (ctx, args): Promise<void> => {
       const { seconds, minutes, hours, days } = args;
       // Check if there's already a scheduled sync
       const delay = (seconds || 0) * 1000 + (minutes || 0) * 60 * 1000 + (hours || 0) * 60 * 60 * 1000 + (days || 0) * 24 * 60 * 60 * 1000;
