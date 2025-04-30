@@ -30,11 +30,11 @@ def get_client() -> ConvexClient:
 
 def sync_now(client: ConvexClient, send_notification: bool = True) -> None:
     """Trigger immediate sync with optional notification"""
-    return client.action("api/actions:sync", {"sendNotification": send_notification})
+    return client.action("actions/sync:sync", {"sendNotification": send_notification})
 
 def sync_later(client: ConvexClient, seconds: int = 0, minutes: int = 0, hours: int = 0, days: int = 0) -> None:
     """Schedule sync after specified time interval"""
-    return client.action("api/actions:scheduleSync", {
+    return client.action("actions/sync:scheduleSync", {
         "seconds": seconds,
         "minutes": minutes,
         "hours": hours,
@@ -43,7 +43,7 @@ def sync_later(client: ConvexClient, seconds: int = 0, minutes: int = 0, hours: 
 
 def show_last_lifelog(client: ConvexClient, send_notification: bool = True) -> None:
     """Show the last lifelog entry with optional notification"""
-    return client.action("api/actions:getLastLifelog", {"sendNotification": send_notification})
+    return client.action("actions/dashboard:getLastLifelog", {"sendNotification": send_notification})
 
 def trigger_sync_http() -> dict:
     """
