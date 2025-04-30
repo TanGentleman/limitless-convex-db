@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { Doc, Id } from "../_generated/dataModel";
+import { Doc } from "../_generated/dataModel";
 
 // Define a type for the lifelog document
 type Lifelog = Doc<"lifelogs">;
@@ -68,9 +68,8 @@ export const getLastLifelog = action({
         console.log("Already scheduled.");
         return;
       }
-      await ctx.scheduler.runAfter(delay, internal.sync.syncLimitless);
-      await ctx.scheduler.runAfter(delay, internal.extras.hooks.sendSlackNotification, {
-        operation: "sync",
+      await ctx.scheduler.runAfter(delay, internal.sync.internalSync, {
+        sendNotification: true,
       });
     },
   });

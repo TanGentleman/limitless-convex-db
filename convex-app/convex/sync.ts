@@ -2,6 +2,7 @@ import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { LimitlessLifelog, convertToConvexFormat } from "./types";
 import { formatDate, metadataOperation } from "./extras/utils";
+import { v } from "convex/values";
 
 /**
  * Request parameters for retrieving lifelogs from the Limitless API.
@@ -261,3 +262,23 @@ async function fetchLifelogs(args: LifelogRequest, existingIds: Set<string>): Pr
     console.log(`Fetch complete. Returning ${allNewLifelogs.length} new lifelogs.`);
     return allNewLifelogs;
 }
+
+export const internalSync = internalAction({
+    args: {
+      sendNotification: v.optional(v.boolean())
+    },
+    handler: async (ctx, args): Promise<boolean> => {
+      const isNewLifelogs: boolean = await ctx.runAction(internal.sync.syncLimitless);
+      if (args.sendNotification === true) {
+        await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+          operation: "sync",
+        });
+        // In case we are getting slightly stale data, keep a short delay
+        // await ctx.scheduler.runAfter(500, internal.extras.hooks.sendSlackNotification, {
+        //   operation: "sync",
+        // });
+      }
+      
+      return isNewLifelogs;
+    },
+  });
