@@ -147,7 +147,7 @@ export const syncLimitless = internalAction({
 /**
  * Fetches lifelogs from the Limitless API with pagination and optional duplicate detection.
  *
- * - Fetches in batches using `defaultBatchSize`.
+ * - First API call uses a batch size of 1, then switches to `defaultBatchSize`.
  * - If `direction` is "desc" and `existingIds` are provided, stops fetching when a duplicate ID is found.
  * - If `direction` is "asc", fetches pages until no more data is available.
  *
@@ -172,9 +172,12 @@ async function fetchLifelogs(
 
   const allNewLifelogs: LimitlessLifelog[] = [];
   let cursor = args.cursor;
-  const batchSize = defaultBatchSize; // Use fixed batch size for pagination
+  let isFirstBatch = true;
 
   while (true) {
+    // Use batch size of 1 for the first API call, then default batch size
+    const batchSize = isFirstBatch ? 1 : defaultBatchSize;
+    
     const params: Record<string, string | number | boolean> = {
       limit: batchSize,
       includeMarkdown: args.includeMarkdown === false ? false : true,
@@ -262,6 +265,7 @@ async function fetchLifelogs(
         `Fetched ${lifelogsInBatch.length} lifelogs, continuing with next cursor...`,
       );
       cursor = nextCursor;
+      isFirstBatch = false; // After first batch, use default batch size
     } catch (error) {
       console.error("Error fetching lifelogs batch:", error);
       // Depending on the error, might want to retry or handle differently
@@ -306,36 +310,5 @@ export const sync = action({
     );
 
     return isNewLifelogs;
-  },
-});
-
-export const scheduleSync = action({
-  args: {
-    seconds: v.optional(v.number()),
-    minutes: v.optional(v.number()),
-    hours: v.optional(v.number()),
-    days: v.optional(v.number()),
-  },
-  handler: async (ctx, args): Promise<void> => {
-    const { seconds, minutes, hours, days } = args;
-    // Check if there's already a scheduled sync
-    const delay =
-      (seconds || 0) * 1000 +
-      (minutes || 0) * 60 * 1000 +
-      (hours || 0) * 60 * 60 * 1000 +
-      (days || 0) * 24 * 60 * 60 * 1000;
-    const isScheduled = await ctx.runQuery(
-      internal.extras.schedules.isSyncScheduled,
-      {
-        delay,
-      },
-    );
-    if (isScheduled) {
-      console.log("Already scheduled.");
-      return;
-    }
-    await ctx.scheduler.runAfter(delay, internal.actions.sync.runSync, {
-      sendNotification: true,
-    });
   },
 });

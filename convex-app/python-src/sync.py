@@ -34,7 +34,7 @@ def sync_now(client: ConvexClient, send_notification: bool = True) -> None:
 
 def sync_later(client: ConvexClient, seconds: int = 0, minutes: int = 0, hours: int = 0, days: int = 0) -> None:
     """Schedule sync after specified time interval"""
-    return client.action("actions/sync:scheduleSync", {
+    return client.action("extras/schedules:scheduleSync", {
         "seconds": seconds,
         "minutes": minutes,
         "hours": hours,
