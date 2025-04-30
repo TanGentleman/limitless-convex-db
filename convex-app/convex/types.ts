@@ -1,6 +1,45 @@
 import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
 
+/**
+ * Request parameters for retrieving lifelogs from the Limitless API.
+ * 
+ * These parameters match the Limitless API query parameters with some
+ * additional handling specific to our sync implementation.
+ */
+export type LifelogRequest = {
+  /** IANA timezone specifier (e.g. "America/New_York"). Default: UTC */
+  timezone?: string;
+  
+  /** Format: YYYY-MM-DD - Not used in current implementation, use start/end instead */
+  date?: string;
+  
+  /** ISO-8601 format start date - Automatically determined by sync logic based on metadata */
+  start?: string;
+  
+  /** ISO-8601 format end date - Automatically determined by sync logic based on metadata */
+  end?: string;
+  
+  /** Pagination cursor returned from previous API calls */
+  cursor?: string;
+  
+  /** 
+   * Sort direction for results. Required by fetchLifelogs.
+   * - "asc": oldest first (used for initial sync)
+   * - "desc": newest first (used for subsequent syncs)
+   */
+  direction?: "asc" | "desc";
+  
+  /** Whether to include markdown content in results. Default: true */
+  includeMarkdown?: boolean;
+  
+  /** Whether to include headings in results. Default: true */
+  includeHeadings?: boolean;
+  
+  /** Maximum entries to return per batch - Handled internally by fetchLifelogs */
+  limit?: number;
+}
+
 type ContentNode = {
   type: "heading1" | "heading2" | "heading3" | "blockquote";
   content: string;

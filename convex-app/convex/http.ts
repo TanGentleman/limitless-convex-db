@@ -2,7 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { formatDate } from "./extras/utils";
-import { LifelogRequest } from "./sync";
+import { LifelogRequest } from "./types";
 import { convertToLimitlessFormat } from "./types";
 
 const http = httpRouter();
@@ -13,7 +13,7 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx) => {
     try {
-      const isNewLifelogs = await ctx.runAction(internal.sync.syncLimitless);
+      const isNewLifelogs = await ctx.runAction(internal.actions.sync.syncLimitless);
       // Return appropriate response
       return new Response(
         JSON.stringify({
