@@ -43,6 +43,8 @@ def sync_later(client: ConvexClient, seconds: int = 0, minutes: int = 0, hours: 
 
 def show_last_lifelog(client: ConvexClient, send_notification: bool = True) -> None:
     """Show the last lifelog entry with optional notification"""
+    if not send_notification:
+        return client.query("queries/dashboard:getPreviewLifelog")
     return client.action("actions/dashboard:getLastLifelog", {"sendNotification": send_notification})
 
 def trigger_sync_http() -> dict:
