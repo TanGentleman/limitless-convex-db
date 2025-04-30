@@ -1,3 +1,4 @@
+"use node";
 import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
@@ -333,7 +334,7 @@ export const scheduleSync = action({
       console.log("Already scheduled.");
       return;
     }
-    await ctx.scheduler.runAfter(delay, internal.actions.sync.internalSync, {
+    await ctx.scheduler.runAfter(delay, internal.actions.sync.runSync, {
       sendNotification: true,
     });
   },
