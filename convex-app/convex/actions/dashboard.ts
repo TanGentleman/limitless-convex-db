@@ -8,25 +8,28 @@ type Lifelog = Doc<"lifelogs">;
 
 // Note: Use a query instead if slack notification is not needed
 export const getLastLifelog = action({
-    args: {
-      sendNotification: v.optional(v.boolean())
-    },
-    handler: async (ctx, args): Promise<Lifelog> => {
-      const lastLifelog: Lifelog[] = await ctx.runQuery(internal.lifelogs.readDocs, {
+  args: {
+    sendNotification: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<Lifelog> => {
+    const lastLifelog: Lifelog[] = await ctx.runQuery(
+      internal.lifelogs.readDocs,
+      {
         limit: 1,
         direction: "desc",
+      },
+    );
+    if (lastLifelog.length === 0) {
+      throw new Error("No lifelogs found");
+    }
+
+    // Send Slack notification if requested
+    if (args.sendNotification === true) {
+      await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+        lifelogId: lastLifelog[0]._id,
       });
-      if (lastLifelog.length === 0) {
-        throw new Error("No lifelogs found");
-      }
-      
-      // Send Slack notification if requested
-      if (args.sendNotification === true) {
-        await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
-          lifelogId: lastLifelog[0]._id
-        });
-      }
-      
-      return lastLifelog[0];
-    },
-  });
+    }
+
+    return lastLifelog[0];
+  },
+});

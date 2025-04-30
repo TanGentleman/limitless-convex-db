@@ -13,7 +13,9 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx) => {
     try {
-      const isNewLifelogs = await ctx.runAction(internal.actions.sync.syncLimitless);
+      const isNewLifelogs = await ctx.runAction(
+        internal.actions.sync.syncLimitless,
+      );
       // Return appropriate response
       return new Response(
         JSON.stringify({
@@ -26,7 +28,7 @@ http.route({
           headers: {
             "Content-Type": "application/json",
           },
-        }
+        },
       );
     } catch (error) {
       console.error("Error in sync HTTP action:", "See Dev logs.");
@@ -40,7 +42,7 @@ http.route({
           headers: {
             "Content-Type": "application/json",
           },
-        }
+        },
       );
     }
   }),
@@ -53,25 +55,29 @@ http.route({
     try {
       // Verify API key from Authorization header
       const authHeader = request.headers.get("Authorization");
-      const apiKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-      
+      const apiKey = authHeader?.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : null;
+
       if (!apiKey || apiKey !== process.env.LIMITLESS_API_KEY) {
         return new Response(
-          JSON.stringify({ error: "Unauthorized: Invalid or missing API key" }),
+          JSON.stringify({
+            error: "Unauthorized: Invalid or missing API key",
+          }),
           {
             status: 401,
             headers: {
               "Content-Type": "application/json",
               "Access-Control-Allow-Origin": "*",
             },
-          }
+          },
         );
       }
 
       // Parse query parameters from URL
       const url = new URL(request.url);
       const params = url.searchParams;
-      
+
       // Build LifelogRequest from query parameters
       const requestOptions: LifelogRequest = {
         timezone: params.get("timezone") || undefined,
@@ -80,23 +86,29 @@ http.route({
         end: params.get("end") || undefined,
         cursor: params.get("cursor") || undefined,
         direction: (params.get("direction") as "asc" | "desc") || "desc",
-        includeMarkdown: params.has("includeMarkdown") ? params.get("includeMarkdown") === "true" : true,
-        includeHeadings: params.has("includeHeadings") ? params.get("includeHeadings") === "true" : true,
-        limit: params.has("limit") ? parseInt(params.get("limit") as string, 10) : undefined,
+        includeMarkdown: params.has("includeMarkdown")
+          ? params.get("includeMarkdown") === "true"
+          : true,
+        includeHeadings: params.has("includeHeadings")
+          ? params.get("includeHeadings") === "true"
+          : true,
+        limit: params.has("limit")
+          ? parseInt(params.get("limit") as string, 10)
+          : undefined,
       };
-      
+
       // Convert date/time parameters to numeric timestamps if necessary
       let startTime: number | undefined = undefined;
       let endTime: number | undefined = undefined;
-      
+
       if (requestOptions.start) {
         startTime = new Date(requestOptions.start).getTime();
       }
-      
+
       if (requestOptions.end) {
         endTime = new Date(requestOptions.end).getTime();
       }
-      
+
       // Read lifelogs using internal query
       const convexLifelogs = await ctx.runQuery(internal.lifelogs.readDocs, {
         startTime,
@@ -110,29 +122,34 @@ http.route({
 
       // filter markdown and headings if requested
       if (!requestOptions.includeMarkdown) {
-        limitlessLifelogs.forEach(lifelog => {
+        limitlessLifelogs.forEach((lifelog) => {
           lifelog.markdown = null;
         });
       }
 
       if (!requestOptions.includeHeadings) {
-        limitlessLifelogs.forEach(lifelog => {
-          lifelog.contents = lifelog.contents.filter(content => content.type !== "heading1" && content.type !== "heading2" && content.type !== "heading3");
+        limitlessLifelogs.forEach((lifelog) => {
+          lifelog.contents = lifelog.contents.filter(
+            (content) =>
+              content.type !== "heading1" &&
+              content.type !== "heading2" &&
+              content.type !== "heading3",
+          );
         });
       }
-      
+
       // Format the response according to OpenAPI schema
       return new Response(
         JSON.stringify({
           data: {
-            lifelogs: limitlessLifelogs
+            lifelogs: limitlessLifelogs,
           },
           meta: {
             lifelogs: {
               nextCursor: null, // Add actual cursor implementation if needed
-              count: limitlessLifelogs.length
-            }
-          }
+              count: limitlessLifelogs.length,
+            },
+          },
         }),
         {
           status: 200,
@@ -142,7 +159,7 @@ http.route({
             "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type, Authorization",
           },
-        }
+        },
       );
     } catch (error) {
       console.error("Error in lifelogs HTTP action:", "See Dev logs.");
@@ -156,7 +173,7 @@ http.route({
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
           },
-        }
+        },
       );
     }
   }),
@@ -196,4 +213,4 @@ http.route({
   }),
 });
 
-export default http; 
+export default http;

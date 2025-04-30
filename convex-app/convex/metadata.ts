@@ -13,14 +13,17 @@ export const createDocs = internalMutation({
   },
   handler: async (ctx, args) => {
     const ids: Id<"metadata">[] = [];
-    
+
     for (const metadataDoc of args.metadataDocs) {
       const id = await ctx.db.insert("metadata", metadataDoc);
       ids.push(id);
     }
-    
-    const operation = metadataOperation("create", `Created ${ids.length} metadata entries`);
-    await ctx.db.insert("operations", operation)
+
+    const operation = metadataOperation(
+      "create",
+      `Created ${ids.length} metadata entries`,
+    );
+    await ctx.db.insert("operations", operation);
     return ids;
   },
 });
@@ -52,38 +55,41 @@ export const readDocs = internalQuery({
   handler: async (ctx, args) => {
     const limit = args.limit ?? 1;
     const direction = args.direction ?? "desc";
-    
+
     // Query with specified limit and direction
-    return await ctx.db.query("metadata")
-      .order(direction)
-      .take(limit);
+    return await ctx.db.query("metadata").order(direction).take(limit);
   },
 });
 
 // UPDATE
 export const updateDocs = internalMutation({
   args: {
-    updates: v.array(v.object({
-      id: v.id("metadata"),
-      metadata: metadataDoc,
-    })),
+    updates: v.array(
+      v.object({
+        id: v.id("metadata"),
+        metadata: metadataDoc,
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     const updatedIds: Id<"metadata">[] = [];
-    
+
     for (const update of args.updates) {
       const existingMetadata = await ctx.db.get(update.id);
       if (!existingMetadata) {
         throw new Error(`Metadata with ID ${update.id} not found`);
       }
-      
+
       await ctx.db.patch(update.id, update.metadata);
       updatedIds.push(update.id);
     }
-    
-    const operation = metadataOperation("update", `Updated ${updatedIds.length} metadata entries`);
-    await ctx.db.insert("operations", operation)
-    
+
+    const operation = metadataOperation(
+      "update",
+      `Updated ${updatedIds.length} metadata entries`,
+    );
+    await ctx.db.insert("operations", operation);
+
     return updatedIds;
   },
 });
@@ -99,13 +105,16 @@ export const deleteDocs = internalMutation({
       if (!existingMetadata) {
         throw new Error(`Metadata with ID ${id} not found`);
       }
-    
+
       await ctx.db.delete(id);
     }
-    
-    const operation = metadataOperation("delete", `Deleted ${args.ids.length} metadata entries`);
-    await ctx.db.insert("operations", operation)
-    
+
+    const operation = metadataOperation(
+      "delete",
+      `Deleted ${args.ids.length} metadata entries`,
+    );
+    await ctx.db.insert("operations", operation);
+
     return args.ids;
   },
 });

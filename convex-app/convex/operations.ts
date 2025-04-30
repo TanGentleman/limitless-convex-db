@@ -28,13 +28,10 @@ export const readDocs = internalQuery({
   handler: async (ctx, args) => {
     const limit = args.limit !== undefined ? args.limit : defaultLimit;
     const direction = args.direction || "desc";
-    const queryBatch = ctx.db
-      .query("operations")
-      .order(direction);
+    const queryBatch = ctx.db.query("operations").order(direction);
     if (limit === null) {
       return queryBatch.collect();
-    } 
-    else {
+    } else {
       return await queryBatch.take(limit);
     }
   },
@@ -44,10 +41,12 @@ export const readDocs = internalQuery({
 // Update an operation
 export const update = internalMutation({
   args: {
-    updates: v.array(v.object({
-      id: v.id("operations"),
-      operation: operationsDoc,
-    })),
+    updates: v.array(
+      v.object({
+        id: v.id("operations"),
+        operation: operationsDoc,
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     for (const update of args.updates) {
