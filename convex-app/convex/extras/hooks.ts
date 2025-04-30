@@ -33,7 +33,7 @@ export const getSlackBlocks = (content: SlackContent) => {
   if (content.type === "lifelog") {
     const lifelog = content.data;
     const markdown = lifelog.markdown || "No content available";
-    const timestamp = formatDate(new Date(lifelog._creationTime));
+    const timestamp = formatDate(new Date(lifelog.startTime));
     const title = lifelog.title || "Untitled Lifelog";
     
     // Process markdown to make it more Slack-friendly
