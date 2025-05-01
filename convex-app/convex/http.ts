@@ -14,7 +14,10 @@ http.route({
   handler: httpAction(async (ctx) => {
     try {
       const isNewLifelogs = await ctx.runAction(
-        internal.actions.sync.syncLimitless,
+        internal.actions.sync.runSync,
+        {
+          sendNotification: true,
+        },
       );
       // Return appropriate response
       return new Response(
