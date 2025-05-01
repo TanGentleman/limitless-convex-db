@@ -6,6 +6,11 @@ import os
 from dotenv import load_dotenv
 from convex import ConvexClient
 from typing import Optional, TypedDict, List, Union, Any, Literal
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.table import Table
+from datetime import datetime
 
 class LifelogContent(TypedDict):
     content: str
@@ -28,6 +33,10 @@ class Lifelog(TypedDict):
     markdown: Union[str, None]
     startTime: float
     title: str
+
+def format_timestamp(timestamp: float) -> str:
+    """Convert Unix timestamp to human readable format."""
+    return datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
 
 def get_latest_lifelog() -> Optional[Lifelog]:
     """
@@ -53,24 +62,48 @@ def get_latest_lifelog() -> Optional[Lifelog]:
     return latest_lifelog
 
 def main():
+    INCLUDE_STRUCTURED_CONTENTS = False
     try:
+        console = Console()
         latest = get_latest_lifelog()
+        
         if latest:
-            print("Latest Lifelog Entry:")
-            print(f"Title: {latest['title']}")
-            print(f"Start Time: {latest['startTime']}")
-            print(f"End Time: {latest['endTime']}")
-            print(f"Lifelog ID: {latest['lifelogId']}")
+            # Create a table for metadata
+            table = Table(show_header=False, box=None)
+            table.add_row("Title", latest['title'])
+            table.add_row("Start Time", format_timestamp(latest['startTime']))
+            table.add_row("End Time", format_timestamp(latest['endTime']))
+            table.add_row("Lifelog ID", latest['lifelogId'])
+            
+            # Display metadata in a panel
+            console.print(Panel(table, title="📝 Latest Lifelog Entry", border_style="blue"))
+            
+            # Display markdown content if present
             if latest['markdown']:
-                print("\nMarkdown Content:")
-                print(latest['markdown'])
-            print("\nContents:")
-            for content in latest['contents']:
-                print(f"- {content['type']}: {content['content']}")
+                console.print("\n[bold blue]Markdown Content:[/bold blue]")
+                md = Markdown(latest['markdown'])
+                console.print(Panel(md, border_style="green"))
+            
+            # Display structured contents
+            if INCLUDE_STRUCTURED_CONTENTS:
+                console.print("\n[bold blue]Structured Contents:[/bold blue]")
+                for content in latest['contents']:
+                    content_type = content['type']
+                    content_text = content['content']
+                
+                # Style different content types differently
+                if content_type == "heading1":
+                    console.print(f"[bold red]# {content_text}[/bold red]")
+                elif content_type == "heading2":
+                    console.print(f"[bold yellow]## {content_text}[/bold yellow]")
+                elif content_type == "heading3":
+                    console.print(f"[bold green]### {content_text}[/bold green]")
+                elif content_type == "blockquote":
+                    console.print(f"[italic blue]> {content_text}[/italic blue]")
         else:
-            print("No lifelog entries found.")
+            console.print("[red]No lifelog entries found.[/red]")
     except Exception as e:
-        print(f"Error fetching latest lifelog: {e}")
+        console.print(f"[red]Error fetching latest lifelog: {e}[/red]")
 
 if __name__ == "__main__":
-    main() 
+    main()
