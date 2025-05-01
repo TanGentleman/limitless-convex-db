@@ -11,6 +11,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 class LifelogContent(TypedDict):
     content: str
@@ -35,8 +36,24 @@ class Lifelog(TypedDict):
     title: str
 
 def format_timestamp(timestamp: float) -> str:
-    """Convert Unix timestamp to human readable format."""
-    return datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
+    """Convert Unix timestamp to human readable format with timezone."""
+    # Load environment variables if not already loaded
+    load_dotenv()
+    
+    # Get timezone from environment variable, default to UTC
+    timezone_str = os.getenv("TIMEZONE", "UTC")
+    try:
+        tz = ZoneInfo(timezone_str)
+    except ZoneInfoNotFoundError:
+        print(f"[yellow]Warning: Unknown timezone '{timezone_str}', falling back to UTC[/yellow]")
+        tz = ZoneInfo("UTC")
+    
+    # Convert timestamp to datetime with timezone
+    dt = datetime.fromtimestamp(timestamp/1000).replace(tzinfo=ZoneInfo("UTC"))
+    local_dt = dt.astimezone(tz)
+    
+    # Format with timezone abbreviation and AM/PM
+    return local_dt.strftime('%Y-%m-%d %I:%M:%S %p %Z')
 
 def get_latest_lifelog() -> Optional[Lifelog]:
     """
@@ -90,16 +107,16 @@ def main():
                 for content in latest['contents']:
                     content_type = content['type']
                     content_text = content['content']
-                
-                # Style different content types differently
-                if content_type == "heading1":
-                    console.print(f"[bold red]# {content_text}[/bold red]")
-                elif content_type == "heading2":
-                    console.print(f"[bold yellow]## {content_text}[/bold yellow]")
-                elif content_type == "heading3":
-                    console.print(f"[bold green]### {content_text}[/bold green]")
-                elif content_type == "blockquote":
-                    console.print(f"[italic blue]> {content_text}[/italic blue]")
+                    
+                    # Style different content types differently
+                    if content_type == "heading1":
+                        console.print(f"[bold red]# {content_text}[/bold red]")
+                    elif content_type == "heading2":
+                        console.print(f"[bold yellow]## {content_text}[/bold yellow]")
+                    elif content_type == "heading3":
+                        console.print(f"[bold green]### {content_text}[/bold green]")
+                    elif content_type == "blockquote":
+                        console.print(f"[italic blue]> {content_text}[/italic blue]")
         else:
             console.print("[red]No lifelog entries found.[/red]")
     except Exception as e:
