@@ -113,15 +113,19 @@ http.route({
       }
 
       // Read lifelogs using internal query
-      const convexLifelogs = await ctx.runQuery(internal.lifelogs.readDocs, {
-        startTime,
-        endTime,
-        direction: requestOptions.direction,
-        limit: requestOptions.limit,
-      });
+      const convexLifelogs = await ctx.runQuery(internal.lifelogs.paginatedDocs, {
+          startTime,
+          endTime,
+          direction: requestOptions.direction,
+          paginationOpts: {
+            numItems: requestOptions.limit || 10,
+            cursor: requestOptions.cursor ? requestOptions.cursor : null,
+          },
+        },
+      );
 
       // Convert lifelogs to Limitless format
-      const limitlessLifelogs = convertToLimitlessFormat(convexLifelogs);
+      const limitlessLifelogs = convertToLimitlessFormat(convexLifelogs.page);
 
       // filter markdown and headings if requested
       if (!requestOptions.includeMarkdown) {
@@ -149,8 +153,10 @@ http.route({
           },
           meta: {
             lifelogs: {
-              nextCursor: null, // Add actual cursor implementation if needed
+              nextCursor: convexLifelogs.continueCursor || null,
               count: limitlessLifelogs.length,
+              // TODO: Add isDone to the response
+              // isDone: convexLifelogs.isDone || false,
             },
           },
         }),

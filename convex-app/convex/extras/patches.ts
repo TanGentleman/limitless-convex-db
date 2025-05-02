@@ -89,10 +89,13 @@ export const runPatches = internalMutation({
 
     // Process lifelogs
     if (args.tables.lifelogs === true) {
-      const lifelogDocs = await ctx.runQuery(internal.lifelogs.readDocs, {
-        limit,
+      const lifelogDocs = await ctx.runQuery(internal.lifelogs.paginatedDocs, {
+        paginationOpts: {
+          numItems: limit,
+          cursor: null,
+        },
       });
-      for (const log of lifelogDocs) {
+      for (const log of lifelogDocs.page) {
         const update = processLifelogDoc(log);
         if (update) {
           await ctx.db.patch(log._id, update);
