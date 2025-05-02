@@ -15,7 +15,10 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
-    "convex": "^1.21.0",
-    "@slack/webhook": "^7.0.5"
+    "@slack/webhook": "^7.0.5",
+    "convex": "^1.23.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3"
   }
 }

@@ -9,6 +9,7 @@ Usage:
     python sync.py 2h                   # Schedule sync in 2 hours
     python sync.py 1d                   # Schedule sync in 1 day
     python sync.py --http               # Trigger sync via HTTP endpoint
+    python sync.py --quiet              # Run without sending Slack notification
 """
 
 import os
@@ -30,11 +31,11 @@ def get_client() -> ConvexClient:
 
 def sync_now(client: ConvexClient, send_notification: bool = True) -> None:
     """Trigger immediate sync with optional notification"""
-    return client.action("api/actions:sync", {"sendNotification": send_notification})
+    return client.action("actions/sync:sync", {"sendNotification": send_notification})
 
 def sync_later(client: ConvexClient, seconds: int = 0, minutes: int = 0, hours: int = 0, days: int = 0) -> None:
     """Schedule sync after specified time interval"""
-    return client.action("api/actions:scheduleSync", {
+    return client.action("extras/schedules:scheduleSync", {
         "seconds": seconds,
         "minutes": minutes,
         "hours": hours,
@@ -43,7 +44,9 @@ def sync_later(client: ConvexClient, seconds: int = 0, minutes: int = 0, hours: 
 
 def show_last_lifelog(client: ConvexClient, send_notification: bool = True) -> None:
     """Show the last lifelog entry with optional notification"""
-    return client.action("api/actions:getLastLifelog", {"sendNotification": send_notification})
+    if not send_notification:
+        return client.query("queries/dashboard:getPreviewLifelog")
+    return client.action("actions/dashboard:getLastLifelog", {"sendNotification": send_notification})
 
 def trigger_sync_http() -> dict:
     """
@@ -74,14 +77,20 @@ def main():
     parser.add_argument("--now", action="store_true", help="Run sync immediately")
     parser.add_argument("--show", action="store_true", help="Show the last lifelog entry")
     parser.add_argument("--http", action="store_true", help="Trigger sync via HTTP endpoint")
+    parser.add_argument("--quiet", action="store_true", help="Don't send Slack notification")
     parser.add_argument("delay", nargs="?", help="Delay for sync (e.g. 10s, 1m, 1h, 1d)", default=None)
     args = parser.parse_args()
     
     client = get_client()
     
+    # Use the global setting by default, override only if --quiet is specified
+    send_notification = SEND_SLACK_NOTIFICATION
+    if args.quiet:
+        send_notification = False
+    
     if args.show:
         print("Showing last lifelog entry...")
-        show_last_lifelog(client, SEND_SLACK_NOTIFICATION)
+        show_last_lifelog(client, send_notification)
         print("Done")
     elif args.http:
         print("Triggering sync via HTTP endpoint...")
@@ -111,7 +120,7 @@ def main():
             print(f"Invalid delay format: {args.delay}. Use format like 10s, 1m, 1h, 1d.")
     elif args.now:  # Default to immediate sync
         print("Running immediate sync...")
-        sync_now(client, SEND_SLACK_NOTIFICATION)
+        sync_now(client, send_notification)
         print("Sync complete")
     else:
         # print("No action specified. Use --now to run sync immediately.")
