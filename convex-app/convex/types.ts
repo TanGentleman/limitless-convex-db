@@ -11,13 +11,13 @@ export type LifelogRequest = {
   /** IANA timezone specifier (e.g. "America/New_York"). Default: UTC */
   timezone?: string;
 
-  /** Format: YYYY-MM-DD - Not used in current implementation, use start/end instead */
+  /** Format: YYYY-MM-DD - Used to replace start/end values when they are not provided */
   date?: string;
 
-  /** ISO-8601 format start date - Automatically determined by sync logic based on metadata */
+  /** ISO-8601 format start date */
   start?: string;
 
-  /** ISO-8601 format end date - Automatically determined by sync logic based on metadata */
+  /** ISO-8601 format end date */
   end?: string;
 
   /** Pagination cursor returned from previous API calls */
@@ -39,6 +39,29 @@ export type LifelogRequest = {
   /** Maximum entries to return per batch - Handled internally by fetchLifelogs */
   limit?: number;
 };
+
+/**
+ * Database query parameters for retrieving lifelogs from the Convex database.
+ * 
+ * These parameters are used internally by the paginatedDocs query to filter
+ * and sort lifelog documents.
+ */
+export type LifelogQueryParams = {
+  /** Pagination options including cursor and number of items */
+  paginationOpts: {
+    numItems: number;
+    cursor: string | null;
+  };
+  
+  /** Optional minimum startTime as unix timestamp (inclusive) */
+  startTime?: number;
+  
+  /** Optional maximum endTime as unix timestamp (inclusive) */
+  endTime?: number;
+  
+  direction: "asc" | "desc";
+};
+
 
 type ContentNode = {
   type: "heading1" | "heading2" | "heading3" | "blockquote";
