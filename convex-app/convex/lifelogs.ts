@@ -68,13 +68,14 @@ export const createDocs = internalMutation({
 // === READ ===
 
 /**
- * Reads lifelog documents based on optional time range, sorting, and limit.
+ * Reads lifelog documents based on optional time range, sorting, and pagination.
+ * Input type should match LifelogQueryParams in types.ts
  *
+ * @param paginationOpts - Pagination options including cursor and number of items.
  * @param startTime - Optional minimum startTime (inclusive).
  * @param endTime - Optional maximum endTime (inclusive).
  * @param direction - Optional sort direction ('asc' or 'desc') based on startTime. Defaults to 'desc'.
- * @param limit - Optional maximum number of documents to return. Defaults to 10.
- * @returns An array of lifelog documents matching the criteria.
+ * @returns Paginated results containing lifelog documents matching the criteria and pagination metadata.
  */
 export const paginatedDocs = internalQuery({
   args: {
@@ -91,24 +92,40 @@ export const paginatedDocs = internalQuery({
     const direction = args.direction || defaultDirection;
 
     // Apply time range filters if provided
-    const timeFilteredQuery =
-      startTime !== undefined
-        ? baseQuery.withIndex("by_start_time", (q) =>
-            q.gte("startTime", startTime),
-          )
-        : baseQuery;
+    // Apply time filters using the by_start_time index with appropriate range conditions
+    const timeFilteredQuery = startTime !== undefined && endTime !== undefined
+      ? baseQuery.withIndex("by_start_time", (q) => q.gte("startTime", startTime).lte("startTime", endTime))
+      : startTime !== undefined
+        ? baseQuery.withIndex("by_start_time", (q) => q.gte("startTime", startTime))
+        : endTime !== undefined
+          ? baseQuery.withIndex("by_start_time", (q) => q.lte("startTime", endTime))
+          : baseQuery.withIndex("by_start_time");
 
     // Apply sorting direction
     const sortedQuery = timeFilteredQuery.order(direction);
+    // Get paginated results
+    const paginatedResults = await sortedQuery.paginate(args.paginationOpts);
+    
+    // If endTime is specified, filter results efficiently
+    // Since lifelogs never overlap and we're already filtering by startTime ≤ endTime,
+    // at most one entry at the boundary could exceed the endTime limit
+    if (endTime !== undefined) {
+      if (direction === "asc") {
+        // In ascending order, only the last entry might need filtering
+        const lastIndex = paginatedResults.page.length - 1;
+        if (lastIndex >= 0 && paginatedResults.page[lastIndex].endTime > endTime) {
+          paginatedResults.page.pop();
+        }
+      } else {
+        // In descending order, only the first entry might need filtering
+        if (paginatedResults.page.length > 0 && paginatedResults.page[0].endTime > endTime) {
+          paginatedResults.page.shift();
+        }
+      }
 
-    // Apply endTime filter if provided
-    const rangeFilteredQuery =
-      endTime !== undefined
-        ? sortedQuery.filter((q) => q.lte(q.field("endTime"), endTime))
-        : sortedQuery;
-
-    // Apply pagination and execute the query
-    return await rangeFilteredQuery.paginate(args.paginationOpts);
+    }
+    
+    return paginatedResults;
   },
 });
 
