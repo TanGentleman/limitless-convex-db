@@ -2,19 +2,83 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { formatDate } from "./extras/utils";
-import { LifelogRequest } from "./types";
+import { LifelogQueryParams, LifelogRequest } from "./types";
 import { convertToLimitlessFormat } from "./types";
 
 const http = httpRouter();
 
-// Define a route for syncing Limitless data
+/**
+ * Parses URL parameters and returns both LifelogRequest and database query parameters
+ * @param params URLSearchParams object containing the query parameters
+ * @returns Object containing both LifelogRequest and database query parameters
+ */
+function parseLifelogHttpParams(params: URLSearchParams): {
+  requestOptions: LifelogRequest;
+  queryParams: LifelogQueryParams;
+} {
+  const defaultDirection = "asc";
+  const defaultLimit = 10;
+
+  // Helper function to safely parse date strings to timestamps
+  const parseDate = (dateString: string | undefined): number | undefined => {
+    if (dateString === undefined) return undefined;
+    const timestamp = new Date(dateString).getTime();
+    return isNaN(timestamp) ? undefined : timestamp;
+  };
+
+  // Build LifelogRequest from query parameters
+  const requestOptions: LifelogRequest = {
+    timezone: params.get("timezone") ?? undefined,
+    date: params.get("date") ?? undefined,
+    start: params.get("start") ?? undefined,
+    end: params.get("end") ?? undefined,
+    cursor: params.get("cursor") ?? undefined,
+    direction: (params.get("direction") ?? defaultDirection) as "asc" | "desc",
+    includeMarkdown: params.get("includeMarkdown") === "false" ? false : undefined,
+    includeHeadings: params.get("includeHeadings") === "false" ? false : undefined,
+    limit: params.has("limit")
+      ? parseInt(params.get("limit") as string)
+      : undefined,
+  };
+
+  // Parse date parameter and calculate time boundaries
+  const dateTimestamp = requestOptions.date ? parseDate(requestOptions.date) : undefined;
+  const startTime = requestOptions.start ? parseDate(requestOptions.start) : dateTimestamp;
+  
+  // Set end time to start of next day if using date parameter
+  const endTime = requestOptions.end ? parseDate(requestOptions.end) : 
+    (dateTimestamp ? new Date(dateTimestamp).setHours(24, 0, 0, 0) : undefined);
+
+  // Build database query parameters
+  const queryParams = {
+    startTime,
+    endTime,
+    direction: requestOptions.direction ?? defaultDirection,
+    paginationOpts: {
+      numItems: requestOptions.limit ?? defaultLimit,
+      cursor: requestOptions.cursor ?? null,
+    },
+  };
+
+  return {
+    requestOptions,
+    queryParams,
+  };
+}
+
+/**
+ * Endpoint: /sync
+ * Method: GET
+ * Description: Triggers a sync operation to fetch and process new Limitless data
+ * Response: JSON with sync status, timestamp, and whether new entries were added
+ */
 http.route({
   path: "/sync",
   method: "GET",
   handler: httpAction(async (ctx) => {
     try {
       const isNewLifelogs = await ctx.runAction(
-        internal.actions.sync.runSync,
+        internal.dashboard.sync.runSync,
         {
           sendNotification: true,
         },
@@ -50,22 +114,50 @@ http.route({
     }
   }),
 });
-// Define a route for reading lifelogs with API key authentication
+
+/**
+ * Endpoint: /v1/lifelogs
+ * Method: GET
+ * Description: Retrieves lifelogs with optional filtering and pagination
+ * Authentication: Requires valid API key in Authorization header
+ * Query Parameters:
+ *   - timezone: User's timezone for date calculations
+ *   - date: Specific date to filter by
+ *   - start: Start timestamp for range filtering
+ *   - end: End timestamp for range filtering
+ *   - cursor: Pagination cursor for fetching next batch
+ *   - direction: Sort direction ('asc' or 'desc') (default: 'asc')
+ *   - includeMarkdown: Whether to include markdown content (default: true)
+ *   - includeHeadings: Whether to include headings (default: true)
+ *   - limit: Maximum number of records to return (default: 10)
+ * Response: JSON with lifelogs data and pagination metadata
+ */
 http.route({
   path: "/v1/lifelogs",
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     try {
-      // Verify API key from Authorization header
-      const authHeader = request.headers.get("Authorization");
-      const apiKey = authHeader?.startsWith("Bearer ")
-        ? authHeader.slice(7)
-        : null;
-
-      if (!apiKey || apiKey !== process.env.LIMITLESS_API_KEY) {
+      // Verify API key from X-API-Key header or Authorization header
+      const apiKey = request.headers.get("X-API-Key");
+      
+      if (apiKey === null) {
         return new Response(
           JSON.stringify({
-            error: "Unauthorized: Invalid or missing API key",
+            error: "Unauthorized: Missing API key",
+          }),
+          {
+            status: 401,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            },
+          },
+        );
+      }
+      if (apiKey !== process.env.LIMITLESS_API_KEY) {
+        return new Response(
+          JSON.stringify({
+            error: "Unauthorized: Invalid API key",
           }),
           {
             status: 401,
@@ -79,62 +171,22 @@ http.route({
 
       // Parse query parameters from URL
       const url = new URL(request.url);
-      const params = url.searchParams;
-
-      // Build LifelogRequest from query parameters
-      const requestOptions: LifelogRequest = {
-        timezone: params.get("timezone") || undefined,
-        date: params.get("date") || undefined,
-        start: params.get("start") || undefined,
-        end: params.get("end") || undefined,
-        cursor: params.get("cursor") || undefined,
-        direction: (params.get("direction") as "asc" | "desc") || "desc",
-        includeMarkdown: params.has("includeMarkdown")
-          ? params.get("includeMarkdown") === "true"
-          : true,
-        includeHeadings: params.has("includeHeadings")
-          ? params.get("includeHeadings") === "true"
-          : true,
-        limit: params.has("limit")
-          ? parseInt(params.get("limit") as string, 10)
-          : undefined,
-      };
-
-      // Convert date/time parameters to numeric timestamps if necessary
-      let startTime: number | undefined = undefined;
-      let endTime: number | undefined = undefined;
-
-      if (requestOptions.start) {
-        startTime = new Date(requestOptions.start).getTime();
-      }
-
-      if (requestOptions.end) {
-        endTime = new Date(requestOptions.end).getTime();
-      }
-
+      const { requestOptions, queryParams } = parseLifelogHttpParams(url.searchParams);
+      
       // Read lifelogs using internal query
-      const convexLifelogs = await ctx.runQuery(internal.lifelogs.paginatedDocs, {
-          startTime,
-          endTime,
-          direction: requestOptions.direction,
-          paginationOpts: {
-            numItems: requestOptions.limit || 10,
-            cursor: requestOptions.cursor ? requestOptions.cursor : null,
-          },
-        },
-      );
+      const convexLifelogs = await ctx.runQuery(internal.lifelogs.paginatedDocs, queryParams);
 
       // Convert lifelogs to Limitless format
       const limitlessLifelogs = convertToLimitlessFormat(convexLifelogs.page);
 
       // filter markdown and headings if requested
-      if (!requestOptions.includeMarkdown) {
+      if (requestOptions.includeMarkdown === false) {
         limitlessLifelogs.forEach((lifelog) => {
           lifelog.markdown = null;
         });
       }
 
-      if (!requestOptions.includeHeadings) {
+      if (requestOptions.includeHeadings === false) {
         limitlessLifelogs.forEach((lifelog) => {
           lifelog.contents = lifelog.contents.filter(
             (content) =>

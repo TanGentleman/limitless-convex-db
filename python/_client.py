@@ -15,7 +15,7 @@ def get_lifelogs(api_key, api_url=os.getenv("LIMITLESS_API_URL") or "https://api
         params = {  
             "limit": batch_size,
             "includeMarkdown": "true" if includeMarkdown else "false",
-            "includeHeadings": "false" if includeHeadings else "true",
+            "includeHeadings": "true" if includeHeadings else "false",
             "date": date,
             "direction": direction,
             "timezone": timezone if timezone else str(tzlocal.get_localzone())
@@ -56,3 +56,32 @@ def get_lifelogs(api_key, api_url=os.getenv("LIMITLESS_API_URL") or "https://api
         cursor = next_cursor
     
     return all_lifelogs
+
+
+def test_compatibility():
+    from dotenv import load_dotenv
+    load_dotenv()
+    api_key = os.getenv("LIMITLESS_API_KEY")
+    api_url = os.getenv("LIMITLESS_API_URL")
+    assert api_key, "LIMITLESS_API_KEY must be set"
+    assert api_url, "LIMITLESS_API_URL must be set"
+    endpoint = "v1/lifelogs"
+    
+    request_options = {
+        "limit": 2,
+        "batch_size": 1,
+        "includeMarkdown": False,
+        "includeHeadings": False,
+        "date": None,
+        "timezone": os.getenv("TIMEZONE"),
+        "direction": "desc"
+    }
+
+    lifelogs = get_lifelogs(api_key, api_url, endpoint, **request_options)
+    print(f"Fetched {len(lifelogs)} lifelogs")
+    return lifelogs
+
+if __name__ == "__main__":
+    from pprint import pprint
+    lifelogs = test_compatibility()
+    pprint(lifelogs)

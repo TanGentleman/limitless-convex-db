@@ -49,11 +49,10 @@ def format_timestamp(timestamp: float) -> str:
         tz = ZoneInfo("UTC")
     
     # Convert timestamp to datetime with timezone
-    dt = datetime.fromtimestamp(timestamp/1000).replace(tzinfo=ZoneInfo("UTC"))
-    local_dt = dt.astimezone(tz)
+    dt = datetime.fromtimestamp(timestamp/1000).replace(tzinfo=tz)
     
-    # Format with timezone abbreviation and AM/PM
-    return local_dt.strftime('%Y-%m-%d %I:%M:%S %p %Z')
+    # Format with AM/PM and timezone abbreviation
+    return dt.strftime('%Y-%m-%d %I:%M:%S %p %Z')
 
 def get_latest_lifelog() -> Optional[Lifelog]:
     """
@@ -74,7 +73,7 @@ def get_latest_lifelog() -> Optional[Lifelog]:
     client = ConvexClient(convex_url)
     
     # Fetch latest lifelog using the getPreviewLifelog query
-    latest_lifelog = client.query("queries/dashboard:getPreviewLifelog")
+    latest_lifelog = client.query("dashboard/previews:getPreviewLifelog")
     
     return latest_lifelog
 

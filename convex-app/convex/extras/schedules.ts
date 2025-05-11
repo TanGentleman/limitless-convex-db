@@ -26,14 +26,14 @@ export const isSyncScheduled = internalQuery({
           // Check for pending syncs within our time window
           q.and(
             q.eq(q.field("completedTime"), undefined),
-            q.eq(q.field("name"), "actions/sync.js:runSync"),
+            q.eq(q.field("name"), "dashboard/sync.js:runSync"),
             q.gte(q.field("scheduledTime"), windowStart),
             q.lte(q.field("scheduledTime"), windowEnd)
           ),
           // Check for recently completed syncs
           q.and(
             q.neq(q.field("completedTime"), undefined),
-            q.eq(q.field("name"), "actions/sync.js:runSync"),
+            q.eq(q.field("name"), "dashboard/sync.js:runSync"),
             q.gte(q.field("completedTime"), targetTimestamp - TIME_WINDOW_BUFFER)
           )
         )
@@ -73,7 +73,7 @@ export const scheduleSync = action({
       return;
     }
 
-    await ctx.scheduler.runAfter(delay, internal.actions.sync.runSync, {
+    await ctx.scheduler.runAfter(delay, internal.dashboard.sync.runSync, {
       sendNotification: true,
     });
   },

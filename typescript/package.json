@@ -1,0 +1,23 @@
+{
+  "name": "limitless-api-examples-typescript",
+  "version": "1.0.0",
+  "description": "TypeScript examples for the Limitless API",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node",
+    "export-markdown": "ts-node export_markdown.ts",
+    "summarize-day": "ts-node summarize_day.ts"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.5",
+    "moment-timezone": "^0.5.45",
+    "openai": "^4.28.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
