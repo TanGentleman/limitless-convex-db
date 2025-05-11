@@ -89,6 +89,12 @@ components:
           type: integer
           description: Number of lifelogs in the current response.
 
+        # # The below will be added in the Convex HTTP response
+        # isDone:
+        #   type: boolean
+        #   description: Indicates whether there are more results available beyond this page.
+        #   default: false
+
     Meta:
       type: object
       properties:

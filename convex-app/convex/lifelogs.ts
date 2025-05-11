@@ -9,6 +9,7 @@ import { Doc, Id } from "./_generated/dataModel";
 import { lifelogDoc } from "./types";
 import { internal } from "./_generated/api";
 import { lifelogOperation, markdownEmbeddingOperation } from "./extras/utils";
+import { paginationOptsValidator } from "convex/server";
 
 // Default values for querying
 const defaultDirection = "desc";
@@ -75,14 +76,12 @@ export const createDocs = internalMutation({
  * @param limit - Optional maximum number of documents to return. Defaults to 10.
  * @returns An array of lifelog documents matching the criteria.
  */
-export const readDocs = internalQuery({
+export const paginatedDocs = internalQuery({
   args: {
+    paginationOpts: paginationOptsValidator,
     startTime: v.optional(v.number()),
     endTime: v.optional(v.number()),
     direction: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
-    // includeMarkdown: v.optional(v.boolean()), // NOTE: Removed as not implemented
-    // includeHeadings: v.optional(v.boolean()), // NOTE: Removed as not implemented
-    limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // Start building the query
@@ -90,7 +89,6 @@ export const readDocs = internalQuery({
     const startTime = args.startTime;
     const endTime = args.endTime;
     const direction = args.direction || defaultDirection;
-    const limit = args.limit || defaultLimit; // Default limit
 
     // Apply time range filters if provided
     const timeFilteredQuery =
@@ -109,13 +107,8 @@ export const readDocs = internalQuery({
         ? sortedQuery.filter((q) => q.lte(q.field("endTime"), endTime))
         : sortedQuery;
 
-    // Apply limit and execute the query
-    const results = await rangeFilteredQuery.take(limit);
-
-    // NOTE: Filtering 'markdown' or 'headings' post-query was mentioned but not implemented.
-    // If needed, it should be done here by mapping over `results`.
-
-    return results;
+    // Apply pagination and execute the query
+    return await rangeFilteredQuery.paginate(args.paginationOpts);
   },
 });
 

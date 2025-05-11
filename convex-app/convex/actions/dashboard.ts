@@ -3,34 +3,46 @@ import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { Doc } from "../_generated/dataModel";
+import { PaginationResult } from "convex/server";
 
-// Define a type for the lifelog document
+// Alias for lifelog document type
 type Lifelog = Doc<"lifelogs">;
 
-// Note: Use a query instead if slack notification is not needed
+/**
+ * Retrieves the most recent lifelog.
+ * Optionally sends a Slack notification if requested.
+ *
+ * @param sendNotification - If true, sends a Slack notification for the lifelog.
+ * @returns The most recent lifelog document.
+ */
 export const getLastLifelog = action({
   args: {
     sendNotification: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<Lifelog> => {
-    const lastLifelog: Lifelog[] = await ctx.runQuery(
-      internal.lifelogs.readDocs,
+    // Fetch the most recent lifelog (sorted by default direction)
+    const result: PaginationResult<Lifelog> = await ctx.runQuery(
+      internal.lifelogs.paginatedDocs,
       {
-        limit: 1,
-        direction: "desc",
-      },
+        paginationOpts: {
+          numItems: 1,
+          cursor: null,
+        },
+      }
     );
-    if (lastLifelog.length === 0) {
+
+    const lifelog = result.page?.[0];
+    if (!lifelog) {
       throw new Error("No lifelogs found");
     }
 
-    // Send Slack notification if requested
-    if (args.sendNotification === true) {
+    // Optionally send a Slack notification
+    if (args.sendNotification) {
       await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
-        lifelogId: lastLifelog[0]._id,
+        lifelogId: lifelog._id,
       });
     }
 
-    return lastLifelog[0];
+    return lifelog;
   },
 });
