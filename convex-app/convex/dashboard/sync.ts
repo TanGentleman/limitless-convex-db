@@ -1,4 +1,3 @@
-"use node";
 import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
@@ -285,7 +284,7 @@ export const runSync = internalAction({
   },
   handler: async (ctx, args): Promise<boolean> => {
     const isNewLifelogs: boolean = await ctx.runAction(
-      internal.actions.sync.syncLimitless,
+      internal.dashboard.sync.syncLimitless,
     );
     if (args.sendNotification === true) {
       await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
@@ -303,7 +302,7 @@ export const sync = action({
   },
   handler: async (ctx, args): Promise<boolean> => {
     const isNewLifelogs: boolean = await ctx.runAction(
-      internal.actions.sync.runSync,
+      internal.dashboard.sync.runSync,
       {
         sendNotification: args.sendNotification,
       },

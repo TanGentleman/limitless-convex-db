@@ -1,12 +1,22 @@
-"use node";
 import { v } from "convex/values";
-import { action } from "../_generated/server";
+import { query, action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { Doc } from "../_generated/dataModel";
 import { PaginationResult } from "convex/server";
 
 // Alias for lifelog document type
 type Lifelog = Doc<"lifelogs">;
+
+export const getPreviewLifelog = query({
+  handler: async (ctx) => {
+    const lastLifelog = await ctx.db.query("lifelogs").order("desc").take(1);
+    if (lastLifelog.length === 0) {
+      return null;
+    }
+    return lastLifelog[0];
+  },
+});
+
 
 /**
  * Retrieves the most recent lifelog.

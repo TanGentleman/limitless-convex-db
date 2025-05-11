@@ -78,7 +78,7 @@ http.route({
   handler: httpAction(async (ctx) => {
     try {
       const isNewLifelogs = await ctx.runAction(
-        internal.actions.sync.runSync,
+        internal.dashboard.sync.runSync,
         {
           sendNotification: true,
         },
