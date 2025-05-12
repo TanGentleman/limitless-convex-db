@@ -11,6 +11,24 @@ import { formatDate, metadataOperation } from "../extras/utils";
 
 // Number of lifelogs to fetch per API request
 const defaultBatchSize = 10;
+const subsequentDirection = "desc";
+
+/**
+ * Represents the result of a pagination operation.
+ */
+interface PaginationResult {
+  continue: boolean;
+  nextCursor?: string;
+}
+
+/**
+ * Represents the API response metadata containing pagination information.
+ */
+interface ApiResponseMeta {
+  lifelogs?: {
+    nextCursor?: string;
+  };
+}
 
 /**
  * Synchronizes lifelogs from the Limitless API to the Convex database.
@@ -42,7 +60,7 @@ export const syncLimitless = internalAction({
 
     // 2. Determine sync strategy
     const isFirstSync = metadata.syncedUntil === 0;
-    const direction = isFirstSync ? "asc" : "desc";
+    const direction = isFirstSync ? "asc" : subsequentDirection;
     console.log(
       `Sync strategy: ${isFirstSync ? "First sync (asc)" : "Subsequent sync (desc)"}`,
     );
@@ -160,6 +178,20 @@ async function fetchLifelogs(
   args: LifelogRequest,
   existingIds: Set<string>,
 ): Promise<LimitlessLifelog[]> {
+  validateFetchParams(args);
+  
+  // Choose the appropriate fetch strategy based on direction
+  if (args.direction === "desc") {
+    return fetchDescendingStrategy(args, existingIds);
+  } else {
+    return fetchAscendingStrategy(args, existingIds);
+  }
+}
+
+/**
+ * Validates required parameters for the fetch operation.
+ */
+function validateFetchParams(args: LifelogRequest): void {
   const API_KEY = process.env.LIMITLESS_API_KEY;
   if (!API_KEY) {
     console.error("LIMITLESS_API_KEY environment variable not set");
@@ -168,7 +200,16 @@ async function fetchLifelogs(
   if (!args.direction) {
     throw new Error("Fetch direction ('asc' or 'desc') must be specified.");
   }
+}
 
+/**
+ * Descending fetch strategy - fetches newest lifelogs first and stops when a duplicate is found.
+ * Used for regular syncs to efficiently fetch only new lifelogs.
+ */
+async function fetchDescendingStrategy(
+  args: LifelogRequest,
+  existingIds: Set<string>
+): Promise<LimitlessLifelog[]> {
   const allNewLifelogs: LimitlessLifelog[] = [];
   let cursor = args.cursor;
   let isFirstBatch = true;
@@ -176,107 +217,266 @@ async function fetchLifelogs(
   while (true) {
     // Use batch size of 1 for the first API call, then default batch size
     const batchSize = isFirstBatch ? 1 : defaultBatchSize;
+    const response = await makeApiRequest(args, cursor, batchSize);
     
-    const params: Record<string, string | number | boolean> = {
-      limit: batchSize,
-      includeMarkdown: args.includeMarkdown === false ? false : true,
-      includeHeadings: args.includeHeadings === false ? false : true,
-      direction: args.direction,
-      timezone: args.timezone || process.env.TIMEZONE || "UTC",
-    };
-
-    if (cursor) {
-      params.cursor = cursor;
+    if (!response.ok) {
+      await handleApiError(response);
+      break;
     }
 
-    // Convert params to URL query string
-    const queryParams = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-      // Skip undefined values, handle boolean conversion
-      if (value !== undefined) {
-        queryParams.append(key, String(value));
-      }
+    const data = await response.json();
+    const lifelogsInBatch: LimitlessLifelog[] = data.data?.lifelogs || [];
+    const meta: ApiResponseMeta = data.meta || {};
+
+    if (lifelogsInBatch.length === 0) {
+      console.log(`No lifelogs found in this batch. Ending fetch.`);
+      break;
     }
 
-    try {
-      const url = `https://api.limitless.ai/v1/lifelogs?${queryParams.toString()}`;
-      console.log(`Fetching batch: ${url}`);
-      const response = await fetch(url, {
-        headers: { "X-API-Key": API_KEY },
-        method: "GET",
-      });
+    // Process batch and check for duplicates
+    const { batchToAdd, foundDuplicate } = processBatchWithDuplicateCheck(
+      lifelogsInBatch, 
+      existingIds
+    );
+    
+    allNewLifelogs.push(...batchToAdd);
 
-      if (!response.ok) {
-        console.error(
-          `HTTP error! Status: ${response.status}, Body: ${await response.text()}`,
-        );
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const lifelogsInBatch: LimitlessLifelog[] = data.data?.lifelogs || [];
-
-      if (lifelogsInBatch.length === 0) {
-        console.log(`No lifelogs found in this batch. Ending fetch.`);
-        break; // No more data from API
-      }
-
-      let foundDuplicateInBatch = false;
-      const batchToAdd: LimitlessLifelog[] = [];
-
-      if (args.direction === "desc" && existingIds.size > 0) {
-        // Check for duplicates only in descending syncs
-        for (const log of lifelogsInBatch) {
-          if (existingIds.has(log.id)) {
-            console.log(
-              `Found existing lifelog ID ${log.id} (endTime: ${log.endTime ? formatDate(log.endTime) : "N/A"}). Stopping fetch.`,
-            );
-            foundDuplicateInBatch = true;
-            break; // Stop processing this batch
-          }
-          batchToAdd.push(log); // Add if not a duplicate
-        }
-      } else {
-        // Ascending sync or no existing IDs, add all from batch
-        batchToAdd.push(...lifelogsInBatch);
-      }
-
-      // Add the verified new logs from this batch
-      allNewLifelogs.push(...batchToAdd);
-
-      // Stop pagination if a duplicate was found in 'desc' mode
-      if (foundDuplicateInBatch) {
-        break;
-      }
-
-      // Get the next cursor for pagination
-      const nextCursor = data.meta?.lifelogs?.nextCursor;
-
-      // Stop if there's no next cursor or if the API returned fewer results than requested
-      if (!nextCursor || lifelogsInBatch.length < batchSize) {
-        console.log(
-          `No next cursor or received fewer items than batch size (${lifelogsInBatch.length}/${batchSize}). Ending fetch.`,
-        );
-        break;
-      }
-
-      console.log(
-        `Fetched ${lifelogsInBatch.length} lifelogs, continuing with next cursor...`,
-      );
-      cursor = nextCursor;
-      isFirstBatch = false; // After first batch, use default batch size
-    } catch (error) {
-      console.error("Error fetching lifelogs batch:", error);
-      // Depending on the error, might want to retry or handle differently
-      break; // Stop fetching on error
+    // Stop pagination if a duplicate was found
+    if (foundDuplicate) {
+      break;
     }
+
+    // Handle pagination
+    const paginationResult = handlePagination(
+      meta,
+      lifelogsInBatch.length, 
+      batchSize, 
+      allNewLifelogs.length, 
+      args.limit
+    );
+    
+    if (!paginationResult.continue) {
+      break;
+    }
+    
+    cursor = paginationResult.nextCursor;
+    isFirstBatch = false;
   }
 
   console.log(
-    `Fetch complete. Returning ${allNewLifelogs.length} new lifelogs.`,
+    `Fetch complete (descending). Returning ${allNewLifelogs.length} new lifelogs.`
   );
   return allNewLifelogs;
 }
+
+/**
+ * Ascending fetch strategy - fetches oldest lifelogs first.
+ * Used for initial syncs or fetching historical data.
+ */
+async function fetchAscendingStrategy(
+  args: LifelogRequest,
+  existingIds: Set<string>
+): Promise<LimitlessLifelog[]> {
+  const allNewLifelogs: LimitlessLifelog[] = [];
+  let cursor = args.cursor;
+  let isFirstBatch = true;
+
+  let duplicateBatches = 0;
+  while (true) {
+    // Use batch size of 1 for the first API call, then default batch size
+    const batchSize = isFirstBatch ? 1 : defaultBatchSize;
+    const response = await makeApiRequest(args, cursor, batchSize);
+    
+    if (!response.ok) {
+      await handleApiError(response);
+      break;
+    }
+
+    const data = await response.json();
+    const lifelogsInBatch: LimitlessLifelog[] = data.data?.lifelogs || [];
+    const meta: ApiResponseMeta = data.meta || {};
+
+    if (lifelogsInBatch.length === 0) {
+      console.log(`No lifelogs found in this batch. Ending fetch.`);
+      break;
+    }
+
+    // Filter out any duplicates but continue fetching
+    const newLogs = lifelogsInBatch.filter(log => !existingIds.has(log.id));
+    if (newLogs.length === 0) {
+      duplicateBatches++;
+      if (duplicateBatches > 1) {
+        console.log(`Found ${duplicateBatches} duplicate batches. Stopping fetch.`);
+        break;
+      }
+    }
+    allNewLifelogs.push(...newLogs);
+
+    // Handle pagination
+    const paginationResult = handlePagination(
+      meta,
+      lifelogsInBatch.length, 
+      batchSize, 
+      allNewLifelogs.length, 
+      args.limit
+    );
+    
+    if (!paginationResult.continue) {
+      break;
+    }
+    
+    cursor = paginationResult.nextCursor;
+    isFirstBatch = false;
+  }
+
+  console.log(
+    `Fetch complete (ascending). Returning ${allNewLifelogs.length} new lifelogs.`
+  );
+  return allNewLifelogs;
+}
+
+/**
+ * Makes an API request to the Limitless API.
+ */
+async function makeApiRequest(
+  args: LifelogRequest, 
+  cursor: string | undefined, 
+  batchSize: number
+): Promise<Response> {
+  const API_KEY = process.env.LIMITLESS_API_KEY!;
+  const params: Record<string, string | number | boolean> = {
+    limit: batchSize,
+    includeMarkdown: args.includeMarkdown === false ? false : true,
+    includeHeadings: args.includeHeadings === false ? false : true,
+    direction: args.direction as string,
+    timezone: args.timezone || process.env.TIMEZONE || "UTC",
+  };
+
+  if (cursor) {
+    params.cursor = cursor;
+  }
+
+  // Convert params to URL query string
+  const queryParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      queryParams.append(key, String(value));
+    }
+  }
+
+  const url = `https://api.limitless.ai/v1/lifelogs?${queryParams.toString()}`;
+  console.log(`Fetching batch: ${url}`);
+  
+  return fetch(url, {
+    headers: { "X-API-Key": API_KEY },
+    method: "GET",
+  });
+}
+
+/**
+ * Handles API errors.
+ */
+async function handleApiError(response: Response): Promise<never> {
+  console.error(
+    `HTTP error! Status: ${response.status}, Body: ${await response.text()}`,
+  );
+  throw new Error(`HTTP error! Status: ${response.status}`);
+}
+
+/**
+ * Processes a batch of lifelogs and checks for duplicates.
+ * Returns the new lifelogs to add and whether a duplicate was found.
+ */
+function processBatchWithDuplicateCheck(
+  lifelogsInBatch: LimitlessLifelog[],
+  existingIds: Set<string>
+): { batchToAdd: LimitlessLifelog[], foundDuplicate: boolean } {
+  let foundDuplicate = false;
+  const batchToAdd: LimitlessLifelog[] = [];
+
+  for (const log of lifelogsInBatch) {
+    if (existingIds.has(log.id)) {
+      console.log(
+        `Found existing lifelog ID ${log.id} (endTime: ${log.endTime ? formatDate(log.endTime) : "N/A"}). Stopping fetch.`,
+      );
+      foundDuplicate = true;
+      break;
+    }
+    batchToAdd.push(log);
+  }
+
+  return { batchToAdd, foundDuplicate };
+}
+
+/**
+ * Handles pagination logic.
+ * Returns whether to continue fetching and the next cursor.
+ * 
+ * @param meta - The API response metadata containing pagination information
+ * @param batchSize - The number of items received in this batch
+ * @param requestedBatchSize - The number of items requested in this batch
+ * @param totalFetched - The total number of items fetched so far
+ * @param limit - Optional limit on the total number of items to fetch
+ * @returns PaginationResult - Object indicating whether to continue and the next cursor
+ */
+function handlePagination(
+  meta: ApiResponseMeta,
+  batchSize: number,
+  requestedBatchSize: number,
+  totalFetched: number,
+  limit?: number
+): PaginationResult {
+  const nextCursor = meta.lifelogs?.nextCursor;
+
+  // Stop if there's no next cursor or if the API returned fewer results than requested
+  if (!nextCursor || batchSize < requestedBatchSize) {
+    console.log(
+      `No next cursor or received fewer items than batch size (${batchSize}/${requestedBatchSize}). Ending fetch.`,
+    );
+    return { continue: false };
+  }
+
+  // Check if we've reached the requested limit
+  if (limit !== undefined && totalFetched >= limit) {
+    console.log(`Reached limit of ${limit} lifelogs. Stopping fetch.`);
+    return { continue: false };
+  }
+
+  console.log(`Fetched ${batchSize} lifelogs, continuing with next cursor...`);
+  return { continue: true, nextCursor };
+}
+
+/**
+ * EXTENSION GUIDE: How to add new lifelog fetching strategies
+ * 
+ * This system is designed to be extensible for new fetching strategies. Follow these steps:
+ * 
+ * 1. Define a new strategy function with a descriptive name (e.g., fetchFilteredStrategy)
+ *    The function should:
+ *    - Accept common parameters (LifelogRequest and existingIds)
+ *    - Return Promise<LimitlessLifelog[]>
+ *    - Follow the pattern of existing strategies
+ * 
+ * 2. Add a condition in the fetchLifelogs function to invoke your strategy when appropriate
+ *    Example:
+ *    if (args.mode === "filtered") {
+ *      return fetchFilteredStrategy(args, existingIds);
+ *    }
+ * 
+ * 3. Consider extending the LifelogRequest interface in ../types.ts to include new parameters
+ *    specific to your strategy (e.g., add a 'mode' field or strategy-specific options)
+ * 
+ * 4. Reuse existing utility functions:
+ *    - makeApiRequest: For API calls with consistent parameter handling
+ *    - processBatchWithDuplicateCheck: For duplicate detection
+ *    - handlePagination: For pagination logic
+ * 
+ * 5. Ensure your strategy handles:
+ *    - Error conditions properly
+ *    - Logging for monitoring
+ *    - Performance considerations for large datasets
+ *    - Edge cases (empty results, etc.)
+ */
 
 export const runSync = internalAction({
   args: {
