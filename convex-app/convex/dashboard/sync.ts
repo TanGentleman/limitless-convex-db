@@ -10,8 +10,13 @@ import {
 import { formatDate, metadataOperation } from "../extras/utils";
 
 // Number of lifelogs to fetch per API request
+
+const experimentalDescendingStrategy = false;
+
+
 const defaultBatchSize = 10;
-const subsequentDirection = "desc";
+const subsequentDirection = experimentalDescendingStrategy ? "desc" : "asc";
+const maximumLimit = 50;
 
 /**
  * Represents the result of a pagination operation.
@@ -62,11 +67,11 @@ export const syncLimitless = internalAction({
     const isFirstSync = metadata.syncedUntil === 0;
     const direction = isFirstSync ? "asc" : subsequentDirection;
     console.log(
-      `Sync strategy: ${isFirstSync ? "First sync (asc)" : "Subsequent sync (desc)"}`,
+      `Sync strategy: ${direction}`,
     );
-
     // 3. Fetch lifelogs using the chosen strategy
     const fetchArgs: LifelogRequest = {
+      start: direction === "asc" ? new Date(metadata.endTime).toISOString() : undefined,
       direction: direction,
       includeMarkdown: true, // Always include content for now
       includeHeadings: true, // Always include headings for now
@@ -182,6 +187,12 @@ async function fetchLifelogs(
   
   // Choose the appropriate fetch strategy based on direction
   if (args.direction === "desc") {
+    // First check if the latest lifelog is a duplicate
+    const isDuplicate = await checkLatestLifelogDuplicate(args, existingIds);
+    if (isDuplicate) {
+      console.log("Latest lifelog is a duplicate. No new lifelogs to fetch.");
+      return [];
+    }
     return fetchDescendingStrategy(args, existingIds);
   } else {
     return fetchAscendingStrategy(args, existingIds);
@@ -203,6 +214,39 @@ function validateFetchParams(args: LifelogRequest): void {
 }
 
 /**
+ * Checks if the latest lifelog is already in our database.
+ * This uses a single API call with batch size of 1 to efficiently check.
+ */
+async function checkLatestLifelogDuplicate(
+  args: LifelogRequest,
+  existingIds: Set<string>
+): Promise<boolean> {
+  const response = await makeApiRequest(args, undefined, 1);
+  
+  if (!response.ok) {
+    await handleApiError(response);
+    return false;
+  }
+
+  const data = await response.json();
+  const lifelogs: LimitlessLifelog[] = data.data?.lifelogs || [];
+  
+  if (lifelogs.length === 0) {
+    console.log("No lifelogs found in latest check.");
+    return false;
+  }
+
+  const latestLifelog = lifelogs[0];
+  const isDuplicate = existingIds.has(latestLifelog.id);
+  
+  console.log(
+    `Latest lifelog check: ID ${latestLifelog.id} (endTime: ${latestLifelog.endTime ? formatDate(latestLifelog.endTime) : "N/A"}) is ${isDuplicate ? "a duplicate" : "new"}.`
+  );
+  
+  return isDuplicate;
+}
+
+/**
  * Descending fetch strategy - fetches newest lifelogs first and stops when a duplicate is found.
  * Used for regular syncs to efficiently fetch only new lifelogs.
  */
@@ -212,11 +256,10 @@ async function fetchDescendingStrategy(
 ): Promise<LimitlessLifelog[]> {
   const allNewLifelogs: LimitlessLifelog[] = [];
   let cursor = args.cursor;
-  let isFirstBatch = true;
+  let foundDuplicateInAnyBatch = false;
 
   while (true) {
-    // Use batch size of 1 for the first API call, then default batch size
-    const batchSize = isFirstBatch ? 1 : defaultBatchSize;
+    const batchSize = defaultBatchSize;
     const response = await makeApiRequest(args, cursor, batchSize);
     
     if (!response.ok) {
@@ -240,9 +283,16 @@ async function fetchDescendingStrategy(
     );
     
     allNewLifelogs.push(...batchToAdd);
-
-    // Stop pagination if a duplicate was found
+    
+    // Track if we found a duplicate in any batch
     if (foundDuplicate) {
+      foundDuplicateInAnyBatch = true;
+      break;
+    }
+
+    // Check if we've reached the maximum limit
+    if (allNewLifelogs.length >= maximumLimit) {
+      console.log(`Reached maximum limit of ${maximumLimit} lifelogs. Stopping fetch.`);
       break;
     }
 
@@ -260,13 +310,18 @@ async function fetchDescendingStrategy(
     }
     
     cursor = paginationResult.nextCursor;
-    isFirstBatch = false;
   }
 
+  // For descending strategy, only return lifelogs if we found a duplicate
+  // or if we reached the maximum limit
+  const finalLifelogs = foundDuplicateInAnyBatch || allNewLifelogs.length >= maximumLimit 
+    ? allNewLifelogs 
+    : [];
+
   console.log(
-    `Fetch complete (descending). Returning ${allNewLifelogs.length} new lifelogs.`
+    `Fetch complete (descending). Returning ${finalLifelogs.length} new lifelogs.`
   );
-  return allNewLifelogs;
+  return finalLifelogs;
 }
 
 /**
@@ -279,12 +334,10 @@ async function fetchAscendingStrategy(
 ): Promise<LimitlessLifelog[]> {
   const allNewLifelogs: LimitlessLifelog[] = [];
   let cursor = args.cursor;
-  let isFirstBatch = true;
 
   let duplicateBatches = 0;
   while (true) {
-    // Use batch size of 1 for the first API call, then default batch size
-    const batchSize = isFirstBatch ? 1 : defaultBatchSize;
+    const batchSize = defaultBatchSize;
     const response = await makeApiRequest(args, cursor, batchSize);
     
     if (!response.ok) {
@@ -312,6 +365,12 @@ async function fetchAscendingStrategy(
     }
     allNewLifelogs.push(...newLogs);
 
+    // Check if we've reached the maximum limit
+    if (allNewLifelogs.length >= maximumLimit) {
+      console.log(`Reached maximum limit of ${maximumLimit} lifelogs. Stopping fetch.`);
+      break;
+    }
+
     // Handle pagination
     const paginationResult = handlePagination(
       meta,
@@ -326,7 +385,6 @@ async function fetchAscendingStrategy(
     }
     
     cursor = paginationResult.nextCursor;
-    isFirstBatch = false;
   }
 
   console.log(
@@ -355,6 +413,9 @@ async function makeApiRequest(
   if (cursor) {
     params.cursor = cursor;
   }
+  if (args.direction === "asc" && args.start) {
+    params.start = args.start;
+  }
 
   // Convert params to URL query string
   const queryParams = new URLSearchParams();
@@ -376,11 +437,11 @@ async function makeApiRequest(
 /**
  * Handles API errors.
  */
-async function handleApiError(response: Response): Promise<never> {
+async function handleApiError(response: Response): Promise<Error> {
   console.error(
     `HTTP error! Status: ${response.status}, Body: ${await response.text()}`,
   );
-  throw new Error(`HTTP error! Status: ${response.status}`);
+  return new Error(`HTTP error! Status: ${response.status}`);
 }
 
 /**
