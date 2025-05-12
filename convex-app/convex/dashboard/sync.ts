@@ -10,13 +10,13 @@ import {
 import { formatDate, metadataOperation } from "../extras/utils";
 
 // Number of lifelogs to fetch per API request
-
-const experimentalDescendingStrategy = false;
-
-
 const defaultBatchSize = 10;
-const subsequentDirection = experimentalDescendingStrategy ? "desc" : "asc";
+// Maximum number of lifelogs to fetch per sync
 const maximumLimit = 50;
+
+const experimentalDescendingStrategy = true;
+const runPreliminarySync = false;
+
 
 /**
  * Represents the result of a pagination operation.
@@ -42,14 +42,6 @@ interface ApiResponseMeta {
  * - First Sync: Fetches all lifelogs in ascending order (oldest first)
  * - Subsequent Syncs: Fetches newest lifelogs in descending order until a known lifelog is found
  *
- * The function handles:
- * - Determining the appropriate sync strategy
- * - Fetching lifelogs from the Limitless API
- * - Filtering out duplicates
- * - Converting and storing new lifelogs
- * - Updating metadata with the latest sync information
- * - Logging operations for monitoring
- *
  * @returns Promise<boolean> - true if new lifelogs were added, false otherwise
  */
 export const syncLimitless = internalAction({
@@ -65,7 +57,7 @@ export const syncLimitless = internalAction({
 
     // 2. Determine sync strategy
     const isFirstSync = metadata.syncedUntil === 0;
-    const direction = isFirstSync ? "asc" : subsequentDirection;
+    const direction = isFirstSync ? "asc" : (experimentalDescendingStrategy ? "desc" : "asc");
     console.log(
       `Sync strategy: ${direction}`,
     );
@@ -99,7 +91,6 @@ export const syncLimitless = internalAction({
         : fetchedLifelogs; // Ascending results are already correct
 
     // Filter out any duplicates missed by fetchLifelogs (safeguard)
-    // This shouldn't be necessary if fetchLifelogs works correctly for 'desc'
     const newLifelogs = chronologicallyOrderedLifelogs.filter(
       (log) => !existingIdsSet.has(log.id),
     );
@@ -169,12 +160,11 @@ export const syncLimitless = internalAction({
 /**
  * Fetches lifelogs from the Limitless API with pagination and optional duplicate detection.
  *
- * - First API call uses a batch size of 1, then switches to `defaultBatchSize`.
- * - If `direction` is "desc" and `existingIds` are provided, stops fetching when a duplicate ID is found.
+ * - If `direction` is "desc", stops fetching when a duplicate ID is found.
  * - If `direction` is "asc", fetches pages until no more data is available.
  *
  * @param args - Request parameters for the API (must include 'direction').
- * @param existingIds - Set of existing lifelog IDs to detect duplicates for 'desc' fetches.
+ * @param existingIds - Set of existing lifelog IDs to detect duplicates.
  * @returns Promise<LimitlessLifelog[]> - Array of *new* lifelogs fetched from the API.
  *                                       For 'desc' direction, these will be newest first.
  *                                       For 'asc' direction, these will be oldest first.
@@ -186,7 +176,7 @@ async function fetchLifelogs(
   validateFetchParams(args);
   
   // Choose the appropriate fetch strategy based on direction
-  if (args.direction === "desc") {
+  if (args.direction === "desc" && runPreliminarySync) {
     // First check if the latest lifelog is a duplicate
     const isDuplicate = await checkLatestLifelogDuplicate(args, existingIds);
     if (isDuplicate) {
@@ -225,7 +215,7 @@ async function checkLatestLifelogDuplicate(
   
   if (!response.ok) {
     await handleApiError(response);
-    return false;
+    throw new Error("Failed to check latest lifelog duplicate.");
   }
 
   const data = await response.json();
@@ -414,7 +404,7 @@ async function makeApiRequest(
     params.cursor = cursor;
   }
   if (args.direction === "asc" && args.start) {
-    params.start = args.start;
+    params.startTime = args.start;
   }
 
   // Convert params to URL query string
