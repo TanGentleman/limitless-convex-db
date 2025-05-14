@@ -32,7 +32,7 @@ const MESSAGES = {
 /**
  * Error categories for API errors
  */
-type ErrorCategory = 'auth' | 'timeout' | 'server' | 'client' | 'unknown';
+type ErrorCategory = 'auth' | 'timeout' | 'server' | 'client' | 'unknown' | 'needDupeCondition';
 
 /**
  * Represents the result of a pagination operation.
@@ -90,11 +90,11 @@ const CONFIG = {
   /** Whether to use date parameter instead of start for ascending strategy */
   experimentalReplaceAscParams: true,
   /** Whether to perform a preliminary check before full descending sync */
-  runPreliminarySync: true,
+  runPreliminarySync: false,
   /** Use the new well-behaved hybrid sync algorithm */
   useWellBehavedSyncAlgorithm: true,
   /** Number of API calls to check for gaps on previous date */
-  checkPreviousDateCalls: 1,
+  checkPreviousDateCalls: 2,
 };
 
 // ================================================================================
@@ -594,7 +594,8 @@ async function checkMissingLogsForDate(
   let apiCalls = 0;
   let cursor: string | undefined = undefined;
   
-  while (apiCalls < CONFIG.checkPreviousDateCalls) {
+  let foundDuplicate = false;
+  while (apiCalls < CONFIG.checkPreviousDateCalls && !foundDuplicate) {
     const response = await makeApiRequest(args, cursor, CONFIG.defaultBatchSize);
     apiCalls++;
     
@@ -613,6 +614,8 @@ async function checkMissingLogsForDate(
     const lifelogs: LimitlessLifelog[] = data.data?.lifelogs || [];
     
     if (lifelogs.length === 0) {
+      foundDuplicate = true;
+      // success condition: Move on to next day if possible
       break;
     }
     
@@ -620,11 +623,12 @@ async function checkMissingLogsForDate(
     const newLogs = lifelogs.filter(log => !existingIds.has(log.id));
     missingLogs.push(...newLogs);
     
-    // If we found all duplicates, we've likely seen all data for this date
-    if (newLogs.length === 0) {
+    // If we find duplicates, we've likely seen all data for this date
+    if (newLogs.length !== lifelogs.length) {
+      foundDuplicate = true;
       break;
     }
-    
+
     const meta: ApiResponseMeta = data.meta || {};
     const nextCursor = meta.lifelogs?.nextCursor;
     
@@ -635,11 +639,22 @@ async function checkMissingLogsForDate(
     cursor = nextCursor;
   }
   
+  
   console.log(`Found ${missingLogs.length} missing lifelogs for date ${date}.`);
+  if (!foundDuplicate) {
+    console.log(`Descending strategy did not find duplicates for date ${date}.`);
+    return {
+      lifelogs: [],
+      success: false,
+      message: `Found ${missingLogs.length} missing lifelogs but no duplicate for date ${date} after ${apiCalls} API calls.`,
+      apiCalls,
+      errorCategory: 'needDupeCondition'
+    };
+  }
   return {
     lifelogs: missingLogs.reverse(),
     success: true,
-    message: `Found ${missingLogs.length} missing lifelogs for date ${date}.`,
+    message: `Found ${missingLogs.length} missing lifelogs for date ${date} after ${apiCalls} API calls. Duplicate was found.`,
     apiCalls,
     lastProcessedDate: date
   };
