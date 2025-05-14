@@ -249,7 +249,10 @@ async function checkLatestLifelogDuplicate(
   args: LifelogRequest,
   existingIds: Set<string>
 ): Promise<boolean> {
-  const response = await makeApiRequest(args, undefined, 1);
+  args.includeMarkdown = false;
+  args.includeHeadings = false;
+  const batchSize = 1;
+  const response = await makeApiRequest(args, undefined, batchSize);
   
   if (!response.ok) {
     await handleApiError(response);
