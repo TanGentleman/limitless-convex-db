@@ -86,13 +86,13 @@ const CONFIG = {
   /** Maximum API calls per sync operation */
   maxApiCalls: 10,
   /** Whether to use descending strategy by default for non-first syncs */
-  experimentalDescendingStrategy: true,
+  experimentalDescendingStrategy: false,
   /** Whether to use date parameter instead of start for ascending strategy */
   experimentalReplaceAscParams: true,
   /** Whether to perform a preliminary check before full descending sync */
   runPreliminarySync: true,
   /** Use the new well-behaved hybrid sync algorithm */
-  useWellBehavedSyncAlgorithm: false,
+  useWellBehavedSyncAlgorithm: true,
   /** Number of API calls to check for gaps on previous date */
   checkPreviousDateCalls: 1,
 };
@@ -637,7 +637,7 @@ async function checkMissingLogsForDate(
   
   console.log(`Found ${missingLogs.length} missing lifelogs for date ${date}.`);
   return {
-    lifelogs: missingLogs,
+    lifelogs: missingLogs.reverse(),
     success: true,
     message: `Found ${missingLogs.length} missing lifelogs for date ${date}.`,
     apiCalls,
