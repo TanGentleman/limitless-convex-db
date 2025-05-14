@@ -295,8 +295,8 @@ async function fetchDescendingStrategy(
 
     // Check if we've reached the maximum limit
     if (allNewLifelogs.length >= maximumLimit) {
-      console.log(`Reached maximum limit of ${maximumLimit} lifelogs. Stopping fetch.`);
-      break;
+      console.error(`No duplicate found after ${allNewLifelogs.length} lifelogs in descending mode. Aborting fetch.`);
+      throw new Error(`Unsucessful sync. Do not try this strategy with ${maximumLimit}+ pending lifelogs.`);
     }
 
     // Handle pagination
