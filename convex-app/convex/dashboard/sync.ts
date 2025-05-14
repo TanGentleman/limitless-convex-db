@@ -9,21 +9,43 @@ import {
 } from "../types";
 import { formatDate, metadataOperation } from "../extras/utils";
 
-// Configuration constants
-const defaultBatchSize = 10;      // Number of lifelogs to fetch per API request
-const maximumLimit = 50;          // Maximum number of lifelogs to fetch per sync
-const maxDuplicateBatches = 3;    // Maximum consecutive duplicate batches before stopping
-const maxApiCalls = 10;           // Maximum API calls per sync operation
-const experimentalDescendingStrategy = false;
-const experimentalReplaceAscParams = true;
-const runPreliminarySync = true;  // Prefer preliminary sync when descending
+// ================================================================================
+// CONFIGURATION
+// ================================================================================
+
+/**
+ * Configuration constants for lifelog synchronization.
+ */
+const CONFIG = {
+  /** Number of lifelogs to fetch per API request */
+  defaultBatchSize: 10,
+  /** Maximum number of lifelogs to fetch per sync */
+  maximumLimit: 50,
+  /** Maximum consecutive duplicate batches before stopping */
+  maxDuplicateBatches: 3,
+  /** Maximum API calls per sync operation */
+  maxApiCalls: 10,
+  /** Whether to use descending strategy by default for non-first syncs */
+  experimentalDescendingStrategy: false,
+  /** Whether to use date parameter instead of start for ascending strategy */
+  experimentalReplaceAscParams: true,
+  /** Whether to perform a preliminary check before full descending sync */
+  runPreliminarySync: true
+};
+
+// ================================================================================
+// TYPES AND INTERFACES
+// ================================================================================
 
 /**
  * Represents the result of a pagination operation.
  */
 interface PaginationResult {
+  /** Whether to continue fetching more pages */
   continue: boolean;
+  /** Cursor for the next page of results */
   nextCursor?: string;
+  /** Whether all data for the current date has been fetched */
   dateIsDone?: boolean;
 }
 
@@ -34,6 +56,481 @@ interface ApiResponseMeta {
   lifelogs?: {
     nextCursor?: string;
   };
+}
+
+/**
+ * Represents the result of a fetch operation.
+ */
+interface FetchResult {
+  /** The lifelogs fetched from the API */
+  lifelogs: LimitlessLifelog[];
+  /** Whether the fetch operation was successful */
+  success: boolean;
+  /** Message describing the result */
+  message: string;
+}
+
+// ================================================================================
+// API INTERACTION FUNCTIONS
+// ================================================================================
+
+/**
+ * Makes an API request to the Limitless API.
+ * 
+ * @param args - Base request parameters
+ * @param cursor - Pagination cursor
+ * @param batchSize - Number of items to fetch
+ * @returns Promise<Response> - The API response
+ */
+async function makeApiRequest(
+  args: LifelogRequest, 
+  cursor: string | undefined, 
+  batchSize: number
+): Promise<Response> {
+  const params: LifelogRequest = {
+    limit: batchSize,
+    includeMarkdown: args.includeMarkdown === false ? false : true,
+    includeHeadings: args.includeHeadings === false ? false : true,
+    direction: args.direction,
+    timezone: args.timezone || process.env.TIMEZONE || "UTC",
+  };
+
+  if (cursor) {
+    params.cursor = cursor;
+  }
+  
+  if (args.direction === "asc" && CONFIG.experimentalReplaceAscParams && args.start ) {
+    params.date = new Date(args.start).toISOString().split('T')[0]
+  }
+
+  // Convert params to URL query string
+  const queryParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      queryParams.append(key, String(value));
+    }
+  }
+
+  const url = `https://api.limitless.ai/v1/lifelogs?${queryParams.toString()}`;
+  console.log(`Fetching batch: ${url}`);
+  
+  return fetch(url, {
+    headers: { "X-API-Key": process.env.LIMITLESS_API_KEY! },
+    method: "GET",
+  });
+}
+
+/**
+ * Handles API errors and logs appropriate messages.
+ * 
+ * @param response - The API response
+ * @returns Promise<number> - The HTTP status code
+ */
+async function handleApiError(response: Response): Promise<number> {
+  if (response.status === 504) {
+    console.error("HTTP error! Timeout. Please try again later.");
+    return 504;
+  }
+  if (response.status === 500) {
+    console.error("HTTP error! Limitless server. Check params!");
+    return 500;
+  }
+  console.error(
+    `HTTP error! Status: ${response.status}, Body: ${await response.text()}`,
+  );
+  return response.status;
+}
+
+// ================================================================================
+// UTILITY FUNCTIONS
+// ================================================================================
+
+/**
+ * Validates required parameters for the fetch operation.
+ * 
+ * @param args - The request parameters to validate
+ * @throws Error if required parameters are missing
+ */
+function validateFetchParams(args: LifelogRequest): void {
+  const API_KEY = process.env.LIMITLESS_API_KEY;
+  if (!API_KEY) {
+    console.error("LIMITLESS_API_KEY environment variable not set");
+    throw new Error("LIMITLESS_API_KEY environment variable not set");
+  }
+  if (!args.direction) {
+    throw new Error("Fetch direction ('asc' or 'desc') must be specified.");
+  }
+}
+
+/**
+ * Processes a batch of lifelogs and checks for duplicates.
+ * Returns the new lifelogs to add and whether a duplicate was found.
+ * 
+ * @param lifelogsInBatch - Batch of lifelogs to process
+ * @param existingIds - Set of existing lifelog IDs to detect duplicates
+ * @returns Object containing new lifelogs and duplicate flag
+ */
+function processBatchWithDuplicateCheck(
+  lifelogsInBatch: LimitlessLifelog[],
+  existingIds: Set<string>
+): { batchToAdd: LimitlessLifelog[], foundDuplicate: boolean } {
+  let foundDuplicate = false;
+  const batchToAdd: LimitlessLifelog[] = [];
+
+  for (const log of lifelogsInBatch) {
+    if (existingIds.has(log.id)) {
+      console.log(
+        `Found existing lifelog ID ${log.id} (endTime: ${log.endTime ? formatDate(log.endTime) : "N/A"}). Stopping fetch.`,
+      );
+      foundDuplicate = true;
+      break;
+    }
+    batchToAdd.push(log);
+  }
+
+  return { batchToAdd, foundDuplicate };
+}
+
+/**
+ * Handles pagination logic.
+ * 
+ * @param meta - API response metadata containing pagination information
+ * @param batchSize - Number of items received in this batch
+ * @param requestedBatchSize - Number of items requested in this batch
+ * @param totalFetched - Total number of items fetched so far
+ * @param limit - Optional limit on total items to fetch
+ * @returns PaginationResult - Object with pagination details
+ */
+function handlePagination(
+  meta: ApiResponseMeta,
+  batchSize: number,
+  requestedBatchSize: number,
+  totalFetched: number,
+  limit?: number
+): PaginationResult {
+  const nextCursor = meta.lifelogs?.nextCursor;
+
+  // Stop if there's no next cursor or if the API returned fewer results than requested
+  if (batchSize < requestedBatchSize) {
+    console.log(
+      `Received fewer items than batch size (${batchSize}/${requestedBatchSize}). Ending fetch.`,
+    );
+    return { continue: false, dateIsDone: true };
+  }
+  
+  if (!nextCursor) {
+    console.log(`No next cursor. Ending fetch.`);
+    return { continue: false };
+  }
+  
+  // Check if we've reached the requested limit
+  if (limit !== undefined && totalFetched >= limit) {
+    console.log(`Reached limit of ${limit} lifelogs. Stopping fetch.`);
+    return { continue: false };
+  }
+
+  console.log(`Fetched ${batchSize} lifelogs, continuing with next cursor...`);
+  return { continue: true, nextCursor };
+}
+
+// ================================================================================
+// DESCENDING STRATEGY IMPLEMENTATION
+// ================================================================================
+
+/**
+ * Checks if the latest lifelog is already in our database.
+ * This uses a single API call with batch size of 1 to efficiently check.
+ * 
+ * @param args - Request parameters
+ * @param existingIds - Set of existing lifelog IDs
+ * @returns Promise<boolean> - Whether the latest lifelog is a duplicate
+ */
+async function checkLatestLifelogDuplicate(
+  args: LifelogRequest,
+  existingIds: Set<string>
+): Promise<boolean> {
+  const response = await makeApiRequest(args, undefined, 1);
+  
+  if (!response.ok) {
+    await handleApiError(response);
+    throw new Error("Failed to check latest lifelog duplicate.");
+  }
+
+  const data = await response.json();
+  const lifelogs: LimitlessLifelog[] = data.data?.lifelogs || [];
+  
+  if (lifelogs.length === 0) {
+    console.log("No lifelogs found in latest check.");
+    return false;
+  }
+
+  const latestLifelog = lifelogs[0];
+  const isDuplicate = existingIds.has(latestLifelog.id);
+  
+  console.log(
+    `Latest lifelog check: ID ${latestLifelog.id} (endTime: ${latestLifelog.endTime ? formatDate(latestLifelog.endTime) : "N/A"}) is ${isDuplicate ? "a duplicate" : "new"}.`
+  );
+  
+  return isDuplicate;
+}
+
+/**
+ * Descending fetch strategy - fetches newest lifelogs first and stops when a duplicate is found.
+ * Used for regular syncs to efficiently fetch only new lifelogs.
+ * 
+ * Success condition: A duplicate lifelog must be found to save the results.
+ * This ensures we've found all new lifelogs since the last sync.
+ * 
+ * @param args - Request parameters
+ * @param existingIds - Set of existing lifelog IDs
+ * @returns Promise<FetchResult> - The fetch result with lifelogs and status
+ */
+async function fetchDescendingStrategy(
+  args: LifelogRequest,
+  existingIds: Set<string>
+): Promise<FetchResult> {
+  const allNewLifelogs: LimitlessLifelog[] = [];
+  let cursor = args.cursor;
+  let foundDuplicateInAnyBatch = false;
+  let apiCalls = 0;
+  
+  while (apiCalls < CONFIG.maxApiCalls) {
+    const batchSize = CONFIG.defaultBatchSize;
+    const response = await makeApiRequest(args, cursor, batchSize);
+    apiCalls++;
+    
+    if (!response.ok) {
+      await handleApiError(response);
+      return {
+        lifelogs: [],
+        success: false,
+        message: "Failed to fetch descending lifelogs."
+      };
+    }
+
+    const data = await response.json();
+    const lifelogsInBatch: LimitlessLifelog[] = data.data?.lifelogs || [];
+    const meta: ApiResponseMeta = data.meta || {};
+
+    if (lifelogsInBatch.length === 0) {
+      console.log(`No lifelogs found in this desc batch. Ending fetch.`);
+      break;
+    }
+
+    // Process batch and check for duplicates
+    const { batchToAdd, foundDuplicate } = processBatchWithDuplicateCheck(
+      lifelogsInBatch, 
+      existingIds
+    );
+    
+    allNewLifelogs.push(...batchToAdd);
+    
+    // Track if we found a duplicate in any batch
+    if (foundDuplicate) {
+      foundDuplicateInAnyBatch = true;
+      break;
+    }
+
+    // Check if we've reached the maximum limit
+    if (allNewLifelogs.length >= CONFIG.maximumLimit) {
+      return {
+        lifelogs: [],
+        success: false,
+        message: `Unsuccessful sync. Do not try this strategy with ${CONFIG.maximumLimit}+ pending lifelogs.`
+      };
+    }
+
+    // Handle pagination
+    const paginationResult = handlePagination(
+      meta,
+      lifelogsInBatch.length, 
+      batchSize, 
+      allNewLifelogs.length, 
+      args.limit
+    );
+    
+    if (!paginationResult.continue) {
+      break;
+    }
+    
+    cursor = paginationResult.nextCursor;
+  }
+
+  // In descending strategy, return results only if we found a duplicate or reached the limit
+  const foundEndOfNewData = foundDuplicateInAnyBatch || allNewLifelogs.length >= CONFIG.maximumLimit;
+  
+  return {
+    lifelogs: foundEndOfNewData ? allNewLifelogs : [],
+    success: foundEndOfNewData,
+    message: foundDuplicateInAnyBatch 
+      ? `Found ${allNewLifelogs.length} new lifelogs until duplicate.`
+      : allNewLifelogs.length >= CONFIG.maximumLimit 
+        ? `Reached limit of ${CONFIG.maximumLimit} lifelogs without finding duplicate.`
+        : `Incomplete sync: No duplicate found. Sync not saved.`
+  };
+}
+
+// ================================================================================
+// ASCENDING STRATEGY IMPLEMENTATION
+// ================================================================================
+
+/**
+ * Ascending fetch strategy - fetches oldest lifelogs first.
+ * Used for initial syncs or fetching historical data.
+ * 
+ * Success condition: The database should be up to date. 
+ * If experimentalReplaceAscParams is enabled, a full day's
+ * data should be complete.
+ * 
+ * @param args - Request parameters
+ * @param existingIds - Set of existing lifelog IDs
+ * @returns Promise<FetchResult> - The fetch result with lifelogs and status
+ */
+async function fetchAscendingStrategy(
+  args: LifelogRequest,
+  existingIds: Set<string>
+): Promise<FetchResult> {
+  const allNewLifelogs: LimitlessLifelog[] = [];
+  let cursor = args.cursor;
+  let duplicateBatches = 0;
+  let apiCalls = 0;
+  
+  while (apiCalls < CONFIG.maxApiCalls) {
+    const batchSize = CONFIG.defaultBatchSize;
+    const response = await makeApiRequest(args, cursor, batchSize);
+    apiCalls++;
+    
+    if (!response.ok) {
+      await handleApiError(response);
+      return {
+        lifelogs: [],
+        success: false,
+        message: "Failed to fetch ascending lifelogs."
+      };
+    }
+
+    const data = await response.json();
+    const lifelogsInBatch: LimitlessLifelog[] = data.data?.lifelogs || [];
+    const meta: ApiResponseMeta = data.meta || {};
+
+    if (lifelogsInBatch.length === 0) {
+      console.log(`No lifelogs found in this asc batch.`);
+      if (CONFIG.experimentalReplaceAscParams && args.start) {
+        console.log(`Incrementing date by 24 hours.`);
+        console.log("This is experimental and has side effects.");
+        const newDate = new Date(args.start);
+        newDate.setDate(newDate.getDate() + 1);
+        args.start = newDate.toISOString();
+        args.cursor = undefined;
+        continue;
+      }
+      break;
+    }
+
+    // Filter out any duplicates but continue fetching
+    const newLogs = lifelogsInBatch.filter(log => !existingIds.has(log.id));
+    if (newLogs.length === 0) {
+      duplicateBatches++;
+      if (duplicateBatches > CONFIG.maxDuplicateBatches) {
+        console.log(`Found ${duplicateBatches} duplicate batches. Stopping fetch.`);
+        break;
+      }
+    }
+    allNewLifelogs.push(...newLogs);
+
+    // Check if we've reached the maximum limit
+    if (allNewLifelogs.length >= CONFIG.maximumLimit) {
+      console.log(`Reached maximum limit of ${CONFIG.maximumLimit} lifelogs. Stopping fetch.`);
+      break;
+    }
+
+    // Handle pagination
+    const paginationResult = handlePagination(
+      meta,
+      lifelogsInBatch.length, 
+      batchSize, 
+      allNewLifelogs.length, 
+      args.limit
+    );
+
+    if (paginationResult.dateIsDone) {
+      if (allNewLifelogs.length === 0 && CONFIG.experimentalReplaceAscParams && args.start) {
+        console.log("This is experimental and has side effects.");
+        console.log("Incrementing date by 24 hours.");
+        // increment date by 24 hours
+        const newDate = new Date(args.start);
+        newDate.setDate(newDate.getDate() + 1);
+        args.start = newDate.toISOString();
+        args.cursor = undefined;
+        continue;
+      }
+      console.log(`Date is done. Ending fetch.`);
+      break;
+    }
+
+    if (!paginationResult.continue) {
+      break;
+    }
+    
+    cursor = paginationResult.nextCursor;
+  }
+
+  return {
+    lifelogs: allNewLifelogs,
+    success: true,
+    message: `Fetch complete (ascending). Retrieved ${allNewLifelogs.length} new lifelogs.`
+  };
+}
+
+// ================================================================================
+// MAIN SYNC LOGIC
+// ================================================================================
+
+/**
+ * Fetches lifelogs from the Limitless API with pagination and optional duplicate detection.
+ *
+ * - If `direction` is "desc", stops fetching when a duplicate ID is found.
+ * - If `direction` is "asc", fetches pages until no more data is available.
+ *
+ * @param args - Request parameters for the API (must include 'direction').
+ * @param existingIds - Set of existing lifelog IDs to detect duplicates.
+ * @returns Promise<LimitlessLifelog[]> - Array of *new* lifelogs fetched from the API.
+ *                                       For 'desc' direction, these will be newest first.
+ *                                       For 'asc' direction, these will be oldest first.
+ */
+async function fetchLifelogs(
+  args: LifelogRequest,
+  existingIds: Set<string>
+): Promise<LimitlessLifelog[]> {
+  validateFetchParams(args);
+  
+  if (args.direction === undefined) {
+    throw new Error("Fetch direction ('asc' or 'desc') must be specified.");
+  }
+  
+
+  
+  // Choose the appropriate fetch strategy based on direction
+  if (args.direction === "desc") {
+    // First check if the latest lifelog is a duplicate
+    if (CONFIG.runPreliminarySync) {
+      const isDuplicate = await checkLatestLifelogDuplicate(args, existingIds);
+      if (isDuplicate) {
+        console.log("Latest lifelog is a duplicate. No new lifelogs to fetch.");
+        return [];
+      }
+    }
+    
+    const result = await fetchDescendingStrategy(args, existingIds);
+    if (!result.success) {
+      console.log(result.message);
+      return [];
+    }
+    return result.lifelogs;
+  } else {
+    const result = await fetchAscendingStrategy(args, existingIds);
+    return result.lifelogs;
+  }
 }
 
 /**
@@ -58,7 +555,7 @@ export const syncLimitless = internalAction({
 
     // 2. Determine sync strategy
     const isFirstSync = metadata.syncedUntil === 0;
-    const direction = isFirstSync ? "asc" : (experimentalDescendingStrategy ? "desc" : "asc");
+    const direction = isFirstSync ? "asc" : (CONFIG.experimentalDescendingStrategy ? "desc" : "asc");
     console.log(
       `Sync strategy: ${direction}`,
     );
@@ -160,429 +657,9 @@ export const syncLimitless = internalAction({
   },
 });
 
-/**
- * Fetches lifelogs from the Limitless API with pagination and optional duplicate detection.
- *
- * - If `direction` is "desc", stops fetching when a duplicate ID is found.
- * - If `direction` is "asc", fetches pages until no more data is available.
- *
- * @param args - Request parameters for the API (must include 'direction').
- * @param existingIds - Set of existing lifelog IDs to detect duplicates.
- * @returns Promise<LimitlessLifelog[]> - Array of *new* lifelogs fetched from the API.
- *                                       For 'desc' direction, these will be newest first.
- *                                       For 'asc' direction, these will be oldest first.
- */
-async function fetchLifelogs(
-  args: LifelogRequest,
-  existingIds: Set<string>,
-): Promise<LimitlessLifelog[]> {
-  validateFetchParams(args);
-  
-  if (args.direction === undefined) {
-    throw new Error("Fetch direction ('asc' or 'desc') must be specified.");
-  }
-  
-  // Choose the appropriate fetch strategy based on direction
-  if (args.direction === "desc") {
-    // First check if the latest lifelog is a duplicate
-    if (runPreliminarySync) {
-      const isDuplicate = await checkLatestLifelogDuplicate(args, existingIds);
-      if (isDuplicate) {
-        console.log("Latest lifelog is a duplicate. No new lifelogs to fetch.");
-        return [];
-      }
-    }
-    return fetchDescendingStrategy(args, existingIds);
-  } else {
-    return fetchAscendingStrategy(args, existingIds);
-  }
-}
-
-/**
- * Validates required parameters for the fetch operation.
- */
-function validateFetchParams(args: LifelogRequest): void {
-  const API_KEY = process.env.LIMITLESS_API_KEY;
-  if (!API_KEY) {
-    console.error("LIMITLESS_API_KEY environment variable not set");
-    throw new Error("LIMITLESS_API_KEY environment variable not set");
-  }
-  if (!args.direction) {
-    throw new Error("Fetch direction ('asc' or 'desc') must be specified.");
-  }
-}
-
-/**
- * Checks if the latest lifelog is already in our database.
- * This uses a single API call with batch size of 1 to efficiently check.
- */
-async function checkLatestLifelogDuplicate(
-  args: LifelogRequest,
-  existingIds: Set<string>
-): Promise<boolean> {
-  const response = await makeApiRequest(args, undefined, 1);
-  
-  if (!response.ok) {
-    await handleApiError(response);
-    throw new Error("Failed to check latest lifelog duplicate.");
-  }
-
-  const data = await response.json();
-  const lifelogs: LimitlessLifelog[] = data.data?.lifelogs || [];
-  
-  if (lifelogs.length === 0) {
-    console.log("No lifelogs found in latest check.");
-    return false;
-  }
-
-  const latestLifelog = lifelogs[0];
-  const isDuplicate = existingIds.has(latestLifelog.id);
-  
-  console.log(
-    `Latest lifelog check: ID ${latestLifelog.id} (endTime: ${latestLifelog.endTime ? formatDate(latestLifelog.endTime) : "N/A"}) is ${isDuplicate ? "a duplicate" : "new"}.`
-  );
-  
-  return isDuplicate;
-}
-
-/**
- * Descending fetch strategy - fetches newest lifelogs first and stops when a duplicate is found.
- * Used for regular syncs to efficiently fetch only new lifelogs.
- */
-async function fetchDescendingStrategy(
-  args: LifelogRequest,
-  existingIds: Set<string>
-): Promise<LimitlessLifelog[]> {
-  const allNewLifelogs: LimitlessLifelog[] = [];
-  let cursor = args.cursor;
-  let foundDuplicateInAnyBatch = false;
-  let apiCalls = 0;
-  
-  while (apiCalls < maxApiCalls) {
-    const batchSize = defaultBatchSize;
-    const response = await makeApiRequest(args, cursor, batchSize);
-    apiCalls++;
-    
-    if (!response.ok) {
-      await handleApiError(response);
-      throw new Error("Failed to fetch descending lifelogs.");
-    }
-
-    const data = await response.json();
-    const lifelogsInBatch: LimitlessLifelog[] = data.data?.lifelogs || [];
-    const meta: ApiResponseMeta = data.meta || {};
-
-    if (lifelogsInBatch.length === 0) {
-      console.log(`No lifelogs found in this desc batch. Ending fetch.`);
-      break;
-    }
-
-    // Process batch and check for duplicates
-    const { batchToAdd, foundDuplicate } = processBatchWithDuplicateCheck(
-      lifelogsInBatch, 
-      existingIds
-    );
-    
-    allNewLifelogs.push(...batchToAdd);
-    
-    // Track if we found a duplicate in any batch
-    if (foundDuplicate) {
-      foundDuplicateInAnyBatch = true;
-      break;
-    }
-
-    // Check if we've reached the maximum limit
-    if (allNewLifelogs.length >= maximumLimit) {
-      console.error(`No duplicate found after ${allNewLifelogs.length} lifelogs in descending mode. Aborting fetch.`);
-      throw new Error(`Unsucessful sync. Do not try this strategy with ${maximumLimit}+ pending lifelogs.`);
-    }
-
-    // Handle pagination
-    const paginationResult = handlePagination(
-      meta,
-      lifelogsInBatch.length, 
-      batchSize, 
-      allNewLifelogs.length, 
-      args.limit
-    );
-    
-    if (!paginationResult.continue) {
-      break;
-    }
-    
-    cursor = paginationResult.nextCursor;
-  }
-
-  // In descending strategy, return results only if we found a duplicate or reached the limit
-  const foundEndOfNewData = foundDuplicateInAnyBatch || allNewLifelogs.length >= maximumLimit;
-  const finalLifelogs = foundEndOfNewData ? allNewLifelogs : [];
-  
-  console.log(
-    `Fetch complete (descending). Found ${allNewLifelogs.length} lifelogs, returning ${finalLifelogs.length}. ` +
-    `Reason: ${foundDuplicateInAnyBatch ? 'duplicate found' : 
-      allNewLifelogs.length >= maximumLimit ? 'limit reached' : 
-      'incomplete sync'}`
-  );
-  
-  return finalLifelogs;
-}
-
-/**
- * Ascending fetch strategy - fetches oldest lifelogs first.
- * Used for initial syncs or fetching historical data.
- */
-async function fetchAscendingStrategy(
-  args: LifelogRequest,
-  existingIds: Set<string>
-): Promise<LimitlessLifelog[]> {
-  const allNewLifelogs: LimitlessLifelog[] = [];
-  let cursor = args.cursor;
-  let duplicateBatches = 0;
-  let apiCalls = 0;
-  
-  while (apiCalls < maxApiCalls) {
-    const batchSize = defaultBatchSize;
-    const response = await makeApiRequest(args, cursor, batchSize);
-    apiCalls++;
-    
-    if (!response.ok) {
-      await handleApiError(response);
-      throw new Error("Failed to fetch ascending lifelogs.");
-    }
-
-    const data = await response.json();
-    const lifelogsInBatch: LimitlessLifelog[] = data.data?.lifelogs || [];
-    const meta: ApiResponseMeta = data.meta || {};
-
-    if (lifelogsInBatch.length === 0) {
-      console.log(`No lifelogs found in this asc batch.`);
-      if (experimentalReplaceAscParams && args.start) {
-        console.log(`Incrementing date by 24 hours.`);
-        console.log("This is experimental and has side effects.");
-        const newDate = new Date(args.start);
-        newDate.setDate(newDate.getDate() + 1);
-        args.start = newDate.toISOString();
-        args.cursor = undefined;
-        continue;
-      }
-      break;
-    }
-
-    // Filter out any duplicates but continue fetching
-    const newLogs = lifelogsInBatch.filter(log => !existingIds.has(log.id));
-    if (newLogs.length === 0) {
-      duplicateBatches++;
-      if (duplicateBatches > maxDuplicateBatches) {
-        console.log(`Found ${duplicateBatches} duplicate batches. Stopping fetch.`);
-        break;
-      }
-    }
-    allNewLifelogs.push(...newLogs);
-
-    // Check if we've reached the maximum limit
-    if (allNewLifelogs.length >= maximumLimit) {
-      console.log(`Reached maximum limit of ${maximumLimit} lifelogs. Stopping fetch.`);
-      break;
-    }
-
-    // Handle pagination
-    const paginationResult = handlePagination(
-      meta,
-      lifelogsInBatch.length, 
-      batchSize, 
-      allNewLifelogs.length, 
-      args.limit
-    );
-
-    if (paginationResult.dateIsDone) {
-      if (allNewLifelogs.length === 0 && experimentalReplaceAscParams && args.start) {
-        console.log("This is experimental and has side effects.");
-        console.log("Incrementing date by 24 hours.");
-        // increment date by 24 hours
-        const newDate = new Date(args.start);
-        newDate.setDate(newDate.getDate() + 1);
-        args.start = newDate.toISOString();
-        args.cursor = undefined;
-        continue;
-      }
-      console.log(`Date is done. Ending fetch.`);
-      break;
-    }
-
-    if (!paginationResult.continue) {
-      break;
-    }
-    
-    cursor = paginationResult.nextCursor;
-  }
-
-  console.log(
-    `Fetch complete (ascending). Returning ${allNewLifelogs.length} new lifelogs.`
-  );
-  return allNewLifelogs;
-}
-
-/**
- * Makes an API request to the Limitless API.
- */
-async function makeApiRequest(
-  args: LifelogRequest, 
-  cursor: string | undefined, 
-  batchSize: number
-): Promise<Response> {
-  const params: LifelogRequest = {
-    limit: batchSize,
-    includeMarkdown: args.includeMarkdown === false ? false : true,
-    includeHeadings: args.includeHeadings === false ? false : true,
-    direction: args.direction,
-    timezone: args.timezone || process.env.TIMEZONE || "UTC",
-  };
-
-  if (cursor) {
-    params.cursor = cursor;
-  }
-  
-  if (args.direction === "asc" && experimentalReplaceAscParams && args.start ) {
-    params.date = new Date(args.start).toISOString().split('T')[0]
-  }
-
-  // NOTE: Must validate params before converting to URL query string
-  // validateFetchParams(params);
-  // !!!
-  // Convert params to URL query string
-  const queryParams = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined) {
-      queryParams.append(key, String(value));
-    }
-  }
-
-  const url = `https://api.limitless.ai/v1/lifelogs?${queryParams.toString()}`;
-  console.log(`Fetching batch: ${url}`);
-  
-  return fetch(url, {
-    headers: { "X-API-Key": process.env.LIMITLESS_API_KEY! },
-    method: "GET",
-  });
-}
-
-/**
- * Handles API errors.
- */
-async function handleApiError(response: Response): Promise<number> {
-  if (response.status === 504) {
-    console.error("HTTP error! Timeout. Please try again later.");
-    return 504;
-  }
-  if (response.status === 500) {
-    console.error("HTTP error! Limitless server. Check params!");
-    return 500;
-  }
-  console.error(
-    `HTTP error! Status: ${response.status}, Body: ${await response.text()}`,
-  );
-  return response.status;
-}
-
-/**
- * Processes a batch of lifelogs and checks for duplicates.
- * Returns the new lifelogs to add and whether a duplicate was found.
- */
-function processBatchWithDuplicateCheck(
-  lifelogsInBatch: LimitlessLifelog[],
-  existingIds: Set<string>
-): { batchToAdd: LimitlessLifelog[], foundDuplicate: boolean } {
-  let foundDuplicate = false;
-  const batchToAdd: LimitlessLifelog[] = [];
-
-  for (const log of lifelogsInBatch) {
-    if (existingIds.has(log.id)) {
-      console.log(
-        `Found existing lifelog ID ${log.id} (endTime: ${log.endTime ? formatDate(log.endTime) : "N/A"}). Stopping fetch.`,
-      );
-      foundDuplicate = true;
-      break;
-    }
-    batchToAdd.push(log);
-  }
-
-  return { batchToAdd, foundDuplicate };
-}
-
-/**
- * Handles pagination logic.
- * Returns whether to continue fetching and the next cursor.
- * 
- * @param meta - The API response metadata containing pagination information
- * @param batchSize - The number of items received in this batch
- * @param requestedBatchSize - The number of items requested in this batch
- * @param totalFetched - The total number of items fetched so far
- * @param limit - Optional limit on the total number of items to fetch
- * @returns PaginationResult - Object indicating whether to continue and the next cursor
- */
-function handlePagination(
-  meta: ApiResponseMeta,
-  batchSize: number,
-  requestedBatchSize: number,
-  totalFetched: number,
-  limit?: number
-): PaginationResult {
-  const nextCursor = meta.lifelogs?.nextCursor;
-
-  // Stop if there's no next cursor or if the API returned fewer results than requested
-  if (batchSize < requestedBatchSize) {
-    console.log(
-      `Received fewer items than batch size (${batchSize}/${requestedBatchSize}). Ending fetch.`,
-    );
-    return { continue: false, dateIsDone: true };
-  }
-  
-  if (!nextCursor) {
-    console.log(`No next cursor. Ending fetch.`);
-    return { continue: false };
-  }
-  
-  // Check if we've reached the requested limit
-  if (limit !== undefined && totalFetched >= limit) {
-    console.log(`Reached limit of ${limit} lifelogs. Stopping fetch.`);
-    return { continue: false };
-  }
-
-  console.log(`Fetched ${batchSize} lifelogs, continuing with next cursor...`);
-  return { continue: true, nextCursor };
-}
-
-/**
- * EXTENSION GUIDE: How to add new lifelog fetching strategies
- * 
- * This system is designed to be extensible for new fetching strategies. Follow these steps:
- * 
- * 1. Define a new strategy function with a descriptive name (e.g., fetchFilteredStrategy)
- *    The function should:
- *    - Accept common parameters (LifelogRequest and existingIds)
- *    - Return Promise<LimitlessLifelog[]>
- *    - Follow the pattern of existing strategies
- * 
- * 2. Add a condition in the fetchLifelogs function to invoke your strategy when appropriate
- *    Example:
- *    if (args.mode === "filtered") {
- *      return fetchFilteredStrategy(args, existingIds);
- *    }
- * 
- * 3. Consider extending the LifelogRequest interface in ../types.ts to include new parameters
- *    specific to your strategy (e.g., add a 'mode' field or strategy-specific options)
- * 
- * 4. Reuse existing utility functions:
- *    - makeApiRequest: For API calls with consistent parameter handling
- *    - processBatchWithDuplicateCheck: For duplicate detection
- *    - handlePagination: For pagination logic
- * 
- * 5. Ensure your strategy handles:
- *    - Error conditions properly
- *    - Logging for monitoring
- *    - Performance considerations for large datasets
- *    - Edge cases (empty results, etc.)
- */
+// ================================================================================
+// PUBLIC API
+// ================================================================================
 
 export const runSync = internalAction({
   args: {
