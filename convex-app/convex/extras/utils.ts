@@ -1,4 +1,35 @@
 /**
+ * Converts a Date object to YYYY-MM-DD format string.
+ * 
+ * @param date - Date object to format
+ * @returns string - Formatted date string
+ */
+export const formatDateToYYYYMMDD = (date: Date): string => {
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Gets the next calendar day after the provided date.
+ * 
+ * @param dateStr - Date string in YYYY-MM-DD format
+ * @param daysToAdd - Number of days to add (default: 1)
+ * @returns string - Next day in YYYY-MM-DD format
+ */
+export const getNextDay = (dateStr: string, daysToAdd: number = 1, validate: boolean = true): string | null => {
+  const date = new Date(dateStr);
+  date.setDate(date.getDate() + daysToAdd);
+  
+  // Check if the calculated date is in the future
+  const now = new Date();
+  if (date > now) {
+    return null;
+  }
+  
+  return formatDateToYYYYMMDD(date);
+}
+
+
+/**
  * Formats markdown content for Slack display
  *
  * @param markdown - The raw markdown content to format
