@@ -9,19 +9,14 @@ import {
 } from "../types";
 import { formatDate, metadataOperation } from "../extras/utils";
 
-// Number of lifelogs to fetch per API request
-const defaultBatchSize = 10;
-// Maximum number of lifelogs to fetch per sync
-const maximumLimit = 50;
-const maxDuplicateBatches = 3;
-const maxApiCalls = 10;
+// Configuration constants
+const defaultBatchSize = 10;      // Number of lifelogs to fetch per API request
+const maximumLimit = 50;          // Maximum number of lifelogs to fetch per sync
+const maxDuplicateBatches = 3;    // Maximum consecutive duplicate batches before stopping
+const maxApiCalls = 10;           // Maximum API calls per sync operation
 const experimentalDescendingStrategy = false;
-
 const experimentalReplaceAscParams = true;
-
-// Prefer preliminary sync when descending
-const runPreliminarySync = true;
-
+const runPreliminarySync = true;  // Prefer preliminary sync when descending
 
 /**
  * Represents the result of a pagination operation.
@@ -186,6 +181,7 @@ async function fetchLifelogs(
   if (args.direction === undefined) {
     throw new Error("Fetch direction ('asc' or 'desc') must be specified.");
   }
+  
   // Choose the appropriate fetch strategy based on direction
   if (args.direction === "desc") {
     // First check if the latest lifelog is a duplicate
@@ -261,10 +257,12 @@ async function fetchDescendingStrategy(
   let cursor = args.cursor;
   let foundDuplicateInAnyBatch = false;
   let apiCalls = 0;
+  
   while (apiCalls < maxApiCalls) {
     const batchSize = defaultBatchSize;
     const response = await makeApiRequest(args, cursor, batchSize);
     apiCalls++;
+    
     if (!response.ok) {
       await handleApiError(response);
       throw new Error("Failed to fetch descending lifelogs.");
@@ -325,6 +323,7 @@ async function fetchDescendingStrategy(
       allNewLifelogs.length >= maximumLimit ? 'limit reached' : 
       'incomplete sync'}`
   );
+  
   return finalLifelogs;
 }
 
@@ -338,13 +337,14 @@ async function fetchAscendingStrategy(
 ): Promise<LimitlessLifelog[]> {
   const allNewLifelogs: LimitlessLifelog[] = [];
   let cursor = args.cursor;
-
   let duplicateBatches = 0;
   let apiCalls = 0;
+  
   while (apiCalls < maxApiCalls) {
     const batchSize = defaultBatchSize;
     const response = await makeApiRequest(args, cursor, batchSize);
     apiCalls++;
+    
     if (!response.ok) {
       await handleApiError(response);
       throw new Error("Failed to fetch ascending lifelogs.");
@@ -358,12 +358,14 @@ async function fetchAscendingStrategy(
       console.log(`No lifelogs found in this asc batch.`);
       if (experimentalReplaceAscParams && args.start) {
         console.log(`Incrementing date by 24 hours.`);
+        console.log("This is experimental and has side effects.");
         const newDate = new Date(args.start);
         newDate.setDate(newDate.getDate() + 1);
         args.start = newDate.toISOString();
         args.cursor = undefined;
-        break;
+        continue;
       }
+      break;
     }
 
     // Filter out any duplicates but continue fetching
@@ -393,6 +395,16 @@ async function fetchAscendingStrategy(
     );
 
     if (paginationResult.dateIsDone) {
+      if (allNewLifelogs.length === 0 && experimentalReplaceAscParams && args.start) {
+        console.log("This is experimental and has side effects.");
+        console.log("Incrementing date by 24 hours.");
+        // increment date by 24 hours
+        const newDate = new Date(args.start);
+        newDate.setDate(newDate.getDate() + 1);
+        args.start = newDate.toISOString();
+        args.cursor = undefined;
+        continue;
+      }
       console.log(`Date is done. Ending fetch.`);
       break;
     }
@@ -429,13 +441,9 @@ async function makeApiRequest(
   if (cursor) {
     params.cursor = cursor;
   }
-  if (args.direction === "asc" && args.start) {
-    if (experimentalReplaceAscParams) {
-      params.date = new Date(args.start).toISOString().split('T')[0]
-    } else {
-      // Start is deprecated, no param passed
-      // params.startTime = args.start;
-    }
+  
+  if (args.direction === "asc" && experimentalReplaceAscParams && args.start ) {
+    params.date = new Date(args.start).toISOString().split('T')[0]
   }
 
   // NOTE: Must validate params before converting to URL query string
@@ -526,9 +534,8 @@ function handlePagination(
     console.log(
       `Received fewer items than batch size (${batchSize}/${requestedBatchSize}). Ending fetch.`,
     );
-    return { continue: false };
+    return { continue: false, dateIsDone: true };
   }
-  
   
   if (!nextCursor) {
     console.log(`No next cursor. Ending fetch.`);
