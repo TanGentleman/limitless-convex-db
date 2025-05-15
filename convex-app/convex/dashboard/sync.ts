@@ -78,7 +78,7 @@ interface FetchResult {
  */
 const CONFIG = {
   /** Number of lifelogs to fetch per API request */
-  defaultBatchSize: 50,
+  defaultBatchSize: 20,
   /** Maximum number of lifelogs to fetch per sync */
   maximumLimit: 200,
   /** Maximum consecutive duplicate batches before stopping */
@@ -88,11 +88,11 @@ const CONFIG = {
   /** Whether to use descending strategy by default for non-first syncs */
   experimentalDescendingStrategy: false,
   /** Whether to use date parameter instead of start for ascending strategy */
-  experimentalReplaceAscParams: true,
+  experimentalReplaceAscParams: false,
   /** Whether to perform a preliminary check before full descending sync */
   runPreliminarySync: false,
   /** Use the new well-behaved hybrid sync algorithm */
-  useWellBehavedSyncAlgorithm: true,
+  useWellBehavedSyncAlgorithm: false,
   /** Number of API calls to check for gaps on previous date */
   checkPreviousDateCalls: 2,
 };
@@ -985,11 +985,16 @@ export const syncLimitless = internalAction({
     
     // 3. Fetch lifelogs using the chosen strategy
     const fetchArgs: LifelogRequest = {
-      date: lastSyncDateStr,
       direction: direction,
       includeMarkdown: true,
       includeHeadings: true,
     };
+    
+    // Only add date parameter if using experimental features
+    if (CONFIG.experimentalReplaceAscParams || CONFIG.useWellBehavedSyncAlgorithm) {
+      fetchArgs.date = lastSyncDateStr;
+    }
+    
     const fetchResult = await fetchLifelogs(fetchArgs, existingIdsSet);
     const fetchedLifelogs = fetchResult.lifelogs;
 
