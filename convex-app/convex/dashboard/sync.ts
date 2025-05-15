@@ -84,15 +84,15 @@ const CONFIG = {
   /** Maximum consecutive duplicate batches before stopping */
   maxDuplicateBatches: 3,
   /** Maximum API calls per sync operation */
-  maxApiCalls: 8,
+  maxApiCalls: 7,
   /** Whether to use descending strategy by default for non-first syncs */
   experimentalDescendingStrategy: false,
   /** Whether to use date parameter instead of start for ascending strategy */
-  experimentalReplaceAscParams: false,
+  experimentalAscDateIncrement: true,
   /** Whether to perform a preliminary check before full descending sync */
   runPreliminarySync: false,
   /** Use the new well-behaved hybrid sync algorithm */
-  useWellBehavedSyncAlgorithm: false,
+  useWellBehavedSyncAlgorithm: true,
   /** Number of API calls to check for gaps on previous date */
   checkPreviousDateCalls: 2,
 };
@@ -441,7 +441,7 @@ async function fetchDescendingStrategy(
  * Used for initial syncs or fetching historical data.
  * 
  * Success condition: The database should be up to date. 
- * If experimentalReplaceAscParams is enabled, a full day's
+ * If experimentalAscDateIncrement is enabled, a full day's
  * data should be complete.
  * 
  * @param args - Request parameters
@@ -481,7 +481,7 @@ async function fetchAscendingStrategy(
 
     if (lifelogsInBatch.length === 0) {
       console.log(`${MESSAGES.NO_LIFELOGS_FOUND} in this asc batch.`);
-      if (CONFIG.experimentalReplaceAscParams && args.date) {
+      if (CONFIG.experimentalAscDateIncrement && args.date) {
         console.log(`Incrementing date by 1 day.`);
         const dateToIncrement = args.date;
         if (dateToIncrement) {
@@ -529,7 +529,7 @@ async function fetchAscendingStrategy(
     );
 
     if (paginationResult.dateIsDone) {
-      if (allNewLifelogs.length === 0 && CONFIG.experimentalReplaceAscParams && args.date) {
+      if (allNewLifelogs.length === 0 && CONFIG.experimentalAscDateIncrement && args.date) {
         const dateToIncrement = args.date;
         if (dateToIncrement) {
           const nextDay = getNextDay(dateToIncrement);
@@ -991,7 +991,7 @@ export const syncLimitless = internalAction({
     };
     
     // Only add date parameter if using experimental features
-    if (CONFIG.experimentalReplaceAscParams || CONFIG.useWellBehavedSyncAlgorithm) {
+    if (CONFIG.experimentalAscDateIncrement || CONFIG.useWellBehavedSyncAlgorithm) {
       fetchArgs.date = lastSyncDateStr;
     }
     
@@ -1055,7 +1055,7 @@ export const syncLimitless = internalAction({
       console.error(`Existing metadata.endTime (${metadata.endTime}) is later than new batch endTime (${newEndTime})`);
     }
     // syncedUntil should reflect the timestamp of the latest known record
-    const updatedSyncedUntil = updatedEndTime;
+    const updatedSyncedUntil = fetchResult.lastProcessedDate ? Math.max(new Date(fetchResult.lastProcessedDate).getTime(), updatedEndTime) : updatedEndTime;
     const updatedLifelogIds = metadata.lifelogIds.concat(newLifelogIds);
 
     const operation = metadataOperation(
