@@ -36,13 +36,13 @@ export const undoSync = internalMutation({
     const isDryRun = args.dryRun ?? false;
     // 1. Get the latest metadata document
     const metadataDocs = await ctx.db.query("metadata").order("desc").take(2);
-    
+
     if (metadataDocs.length === 0) {
       throw new Error("No metadata document found to undo sync");
     }
-    
+
     const latestMetadata = metadataDocs[0];
-    
+
     // 2. Get the previous metadata document (if any)
     const previousMetadata = metadataDocs.length > 1 ? metadataDocs[1] : null;
 
@@ -50,9 +50,7 @@ export const undoSync = internalMutation({
     const lifelogIdsToDelete = previousMetadata
       ? (() => {
           const previousIds = new Set(previousMetadata.lifelogIds);
-          return latestMetadata.lifelogIds.filter(
-            (id) => !previousIds.has(id)
-          );
+          return latestMetadata.lifelogIds.filter((id) => !previousIds.has(id));
         })()
       : latestMetadata.lifelogIds;
 

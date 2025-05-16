@@ -17,7 +17,6 @@ export const getPreviewLifelog = query({
   },
 });
 
-
 /**
  * Retrieves the most recent lifelog.
  * Optionally sends a Slack notification if requested.
@@ -38,7 +37,7 @@ export const getLastLifelog = action({
           numItems: 1,
           cursor: null,
         },
-      }
+      },
     );
 
     const lifelog = result.page?.[0];

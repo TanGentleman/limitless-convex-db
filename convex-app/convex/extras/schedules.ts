@@ -12,31 +12,34 @@ export const isSyncScheduled = internalQuery({
   },
   handler: async (ctx, args) => {
     const { targetTimestamp } = args;
-    
+
     // Define time window for checking scheduled syncs
     const windowStart = targetTimestamp - TIME_WINDOW_BUFFER;
     const windowEnd = targetTimestamp + TIME_WINDOW_BUFFER;
-    
+
     // Query for any scheduled sync within our time window
     const scheduledFunctions = await ctx.db.system
       .query("_scheduled_functions")
       .order("desc")
-      .filter((q) => 
+      .filter((q) =>
         q.or(
           // Check for pending syncs within our time window
           q.and(
             q.eq(q.field("completedTime"), undefined),
             q.eq(q.field("name"), "dashboard/sync.js:runSync"),
             q.gte(q.field("scheduledTime"), windowStart),
-            q.lte(q.field("scheduledTime"), windowEnd)
+            q.lte(q.field("scheduledTime"), windowEnd),
           ),
           // Check for recently completed syncs
           q.and(
             q.neq(q.field("completedTime"), undefined),
             q.eq(q.field("name"), "dashboard/sync.js:runSync"),
-            q.gte(q.field("completedTime"), targetTimestamp - TIME_WINDOW_BUFFER)
-          )
-        )
+            q.gte(
+              q.field("completedTime"),
+              targetTimestamp - TIME_WINDOW_BUFFER,
+            ),
+          ),
+        ),
       )
       .take(1);
 
@@ -64,9 +67,12 @@ export const scheduleSync = action({
     const targetTimestamp = currentTimestamp + delay;
 
     // Check if there's already a scheduled sync
-    const isScheduled = await ctx.runQuery(internal.extras.schedules.isSyncScheduled, {
-      targetTimestamp,
-    });
+    const isScheduled = await ctx.runQuery(
+      internal.extras.schedules.isSyncScheduled,
+      {
+        targetTimestamp,
+      },
+    );
 
     if (isScheduled) {
       console.log("Sync already scheduled for this time window.");

@@ -93,19 +93,26 @@ export const paginatedDocs = internalQuery({
 
     // Apply time range filters if provided
     // Apply time filters using the by_start_time index with appropriate range conditions
-    const timeFilteredQuery = startTime !== undefined && endTime !== undefined
-      ? baseQuery.withIndex("by_start_time", (q) => q.gte("startTime", startTime).lte("startTime", endTime))
-      : startTime !== undefined
-        ? baseQuery.withIndex("by_start_time", (q) => q.gte("startTime", startTime))
-        : endTime !== undefined
-          ? baseQuery.withIndex("by_start_time", (q) => q.lte("startTime", endTime))
-          : baseQuery.withIndex("by_start_time");
+    const timeFilteredQuery =
+      startTime !== undefined && endTime !== undefined
+        ? baseQuery.withIndex("by_start_time", (q) =>
+            q.gte("startTime", startTime).lte("startTime", endTime),
+          )
+        : startTime !== undefined
+          ? baseQuery.withIndex("by_start_time", (q) =>
+              q.gte("startTime", startTime),
+            )
+          : endTime !== undefined
+            ? baseQuery.withIndex("by_start_time", (q) =>
+                q.lte("startTime", endTime),
+              )
+            : baseQuery.withIndex("by_start_time");
 
     // Apply sorting direction
     const sortedQuery = timeFilteredQuery.order(direction);
     // Get paginated results
     const paginatedResults = await sortedQuery.paginate(args.paginationOpts);
-    
+
     // If endTime is specified, filter results efficiently
     // Since lifelogs never overlap and we're already filtering by startTime ≤ endTime,
     // at most one entry at the boundary could exceed the endTime limit
@@ -113,18 +120,23 @@ export const paginatedDocs = internalQuery({
       if (direction === "asc") {
         // In ascending order, only the last entry might need filtering
         const lastIndex = paginatedResults.page.length - 1;
-        if (lastIndex >= 0 && paginatedResults.page[lastIndex].endTime > endTime) {
+        if (
+          lastIndex >= 0 &&
+          paginatedResults.page[lastIndex].endTime > endTime
+        ) {
           paginatedResults.page.pop();
         }
       } else {
         // In descending order, only the first entry might need filtering
-        if (paginatedResults.page.length > 0 && paginatedResults.page[0].endTime > endTime) {
+        if (
+          paginatedResults.page.length > 0 &&
+          paginatedResults.page[0].endTime > endTime
+        ) {
           paginatedResults.page.shift();
         }
       }
-
     }
-    
+
     return paginatedResults;
   },
 });

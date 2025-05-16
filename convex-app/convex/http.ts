@@ -34,20 +34,29 @@ function parseLifelogHttpParams(params: URLSearchParams): {
     end: params.get("end") ?? undefined,
     cursor: params.get("cursor") ?? undefined,
     direction: (params.get("direction") ?? defaultDirection) as "asc" | "desc",
-    includeMarkdown: params.get("includeMarkdown") === "false" ? false : undefined,
-    includeHeadings: params.get("includeHeadings") === "false" ? false : undefined,
+    includeMarkdown:
+      params.get("includeMarkdown") === "false" ? false : undefined,
+    includeHeadings:
+      params.get("includeHeadings") === "false" ? false : undefined,
     limit: params.has("limit")
       ? parseInt(params.get("limit") as string)
       : undefined,
   };
 
   // Parse date parameter and calculate time boundaries
-  const dateTimestamp = requestOptions.date ? parseDate(requestOptions.date) : undefined;
-  const startTime = requestOptions.start ? parseDate(requestOptions.start) : dateTimestamp;
-  
+  const dateTimestamp = requestOptions.date
+    ? parseDate(requestOptions.date)
+    : undefined;
+  const startTime = requestOptions.start
+    ? parseDate(requestOptions.start)
+    : dateTimestamp;
+
   // Set end time to start of next day if using date parameter
-  const endTime = requestOptions.end ? parseDate(requestOptions.end) : 
-    (dateTimestamp ? new Date(dateTimestamp).setHours(24, 0, 0, 0) : undefined);
+  const endTime = requestOptions.end
+    ? parseDate(requestOptions.end)
+    : dateTimestamp
+      ? new Date(dateTimestamp).setHours(24, 0, 0, 0)
+      : undefined;
 
   // Build database query parameters
   const queryParams = {
@@ -139,7 +148,7 @@ http.route({
     try {
       // Verify API key from X-API-Key header or Authorization header
       const apiKey = request.headers.get("X-API-Key");
-      
+
       if (apiKey === null) {
         return new Response(
           JSON.stringify({
@@ -171,10 +180,15 @@ http.route({
 
       // Parse query parameters from URL
       const url = new URL(request.url);
-      const { requestOptions, queryParams } = parseLifelogHttpParams(url.searchParams);
-      
+      const { requestOptions, queryParams } = parseLifelogHttpParams(
+        url.searchParams,
+      );
+
       // Read lifelogs using internal query
-      const convexLifelogs = await ctx.runQuery(internal.lifelogs.paginatedDocs, queryParams);
+      const convexLifelogs = await ctx.runQuery(
+        internal.lifelogs.paginatedDocs,
+        queryParams,
+      );
 
       // Convert lifelogs to Limitless format
       const limitlessLifelogs = convertToLimitlessFormat(convexLifelogs.page);
