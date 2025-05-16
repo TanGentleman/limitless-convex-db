@@ -440,10 +440,6 @@ async function fetchDescendingStrategy(
  * Ascending fetch strategy - fetches oldest lifelogs first.
  * Used for initial syncs or fetching historical data.
  * 
- * Success condition: The database should be up to date. 
- * If experimentalAscDateIncrement is enabled, a full day's
- * data should be complete.
- * 
  * @param args - Request parameters
  * @param existingIds - Set of existing lifelog IDs
  * @returns Promise<FetchResult> - The fetch result with lifelogs and status
@@ -452,14 +448,14 @@ async function fetchAscendingStrategy(
   args: LifelogRequest,
   existingIds: Set<string>
 ): Promise<FetchResult> {
+  const completedLifelogs: LimitlessLifelog[] = [];
+  const allNewLifelogs: LimitlessLifelog[] = [];
   
   let cursor = args.cursor;
   let duplicateBatches = 0;
   let apiCalls = 0;
   let lastCompletedDate: string | undefined = undefined;
   
-  const completedLifelogs: LimitlessLifelog[] = [];
-  const allNewLifelogs: LimitlessLifelog[] = [];
   while (apiCalls < CONFIG.maxApiCalls) {
     const batchSize = CONFIG.defaultBatchSize;
     const response = await makeApiRequest(args, cursor, batchSize);
@@ -481,14 +477,15 @@ async function fetchAscendingStrategy(
     const lifelogsInBatch: LimitlessLifelog[] = data.data?.lifelogs || [];
     const meta: ApiResponseMeta = data.meta || {};
 
+    // Handle empty batch case
     if (lifelogsInBatch.length === 0) {
       console.log(`${MESSAGES.NO_LIFELOGS_FOUND} in this asc batch.`);
       lastCompletedDate = args.date;
+      
+      // If using date-based incremental fetching, move to next day
       if (CONFIG.experimentalAscDateIncrement && args.date) {
-        console.log(`Incrementing date by 1 day.`);
         const nextDay = getNextDay(args.date);
         if (nextDay === null) {
-          // We're done fetching
           console.log(`Date ${args.date} is the last day of data. No more data to fetch.`);
           break;
         }
@@ -496,12 +493,13 @@ async function fetchAscendingStrategy(
         args.cursor = undefined;
         continue;
       }
-      // If we are not using a date, then break here.
       break;
     }
 
-    // Filter out any duplicates but continue fetching
+    // Filter out duplicates
     const newLogs = lifelogsInBatch.filter(log => !existingIds.has(log.id));
+    
+    // Track consecutive duplicate batches
     if (newLogs.length === 0) {
       duplicateBatches++;
       if (duplicateBatches > CONFIG.maxDuplicateBatches) {
@@ -509,9 +507,7 @@ async function fetchAscendingStrategy(
         break;
       }
     }
-    // if (newLogs.length !== lifelogsInBatch.length) {
-    //   console.error(`Found a dupe in asc batch. This may have undefined behavior!`);
-    // }
+    
     allNewLifelogs.push(...newLogs);
     
     // Handle pagination
@@ -523,16 +519,17 @@ async function fetchAscendingStrategy(
       args.limit
     );
 
+    // Handle date increment when a day is complete
     if (CONFIG.experimentalAscDateIncrement && args.date && !paginationResult.nextCursor) {
       lastCompletedDate = args.date;
       const nextDate = getNextDay(args.date);
-        if (nextDate === null) {
-          // We're done fetching
-          console.log(
-            `Date following ${args.date} is the last day of data. No more data to fetch.`,
-          );
-          break;
+      
+      if (nextDate === null) {
+        console.log(`Date following ${args.date} is the last day of data. No more data to fetch.`);
+        break;
       }
+      
+      // Reset for next day
       args.date = nextDate;
       args.cursor = undefined;
       completedLifelogs.push(...allNewLifelogs);
@@ -540,6 +537,7 @@ async function fetchAscendingStrategy(
       continue;
     }
 
+    // Stop if no more pages
     if (!paginationResult.continue) {
       break;
     }
@@ -551,6 +549,11 @@ async function fetchAscendingStrategy(
     }
     
     cursor = paginationResult.nextCursor;
+  }
+
+  // Add any remaining logs to the result
+  if (allNewLifelogs.length > 0) {
+    completedLifelogs.push(...allNewLifelogs);
   }
 
   return {
@@ -660,19 +663,17 @@ async function checkMissingLogsForDate(
 
 /**
  * Implements the Well-Behaved Sync Algorithm that efficiently syncs lifelogs
- * by combining descending and ascending strategies with date-based pagination.
+ * by combining date-based pagination with smart duplicate detection.
  * 
- * Algorithm:
- * 1. Check if the DB is up-to-date with the latest lifelog (1 API call)
- * 2. Check for missing lifelogs on the last known date (1 API call)
- * 3. Continue with ascending sync from the next day
+ * Algorithm flow:
+ * 1. Check if latest lifelog on the last sync date is already in the database
+ * 2. If it's a duplicate, increment to the next day
+ * 3. Use ascending strategy to fetch all lifelogs from that point forward
  *
- * @param lastSyncDate - Date string of the last successful sync
+ * @param lastSyncDate - Date string of the last successful sync (YYYY-MM-DD)
  * @param existingIds - Set of existing lifelog IDs
  * @returns Promise<FetchResult> - The fetch result with lifelogs and status
  */
-
-// ADD USE OF LASTPROCESSEDDATE
 async function wellBehavedSyncAlgorithm(
   lastSyncDate: string,
   existingIds: Set<string>
@@ -680,11 +681,12 @@ async function wellBehavedSyncAlgorithm(
   if (!lastSyncDate) {
     throw new Error("Last sync date is required for well-behaved sync.");
   }
+  
   let dateToSync = lastSyncDate;
   let apiCalls = 0;
   let lastCompletedDate: string | undefined = undefined;
   
-  // Step 1: Check if the DB is up-to-date with the latest lifelog (without date filter)
+  // Run optional preliminary check without date filter
   if (CONFIG.runPreliminarySync) {
     const latestCheckResult = await checkLatestLifelogDuplicate(existingIds);
     apiCalls += latestCheckResult.apiCalls;
@@ -700,7 +702,6 @@ async function wellBehavedSyncAlgorithm(
     }
     
     if (latestCheckResult.message === MESSAGES.LATEST_IS_DUPLICATE) {
-      console.log("Database is already up-to-date with the latest lifelog.");
       return {
         lifelogs: [],
         success: true,
@@ -710,7 +711,7 @@ async function wellBehavedSyncAlgorithm(
     }
   }
   
-  // Step 1b: Check if the DB is up-to-date for the specific date
+  // Check if the DB is up-to-date for the specific date
   const dateCheckResult = await checkLatestLifelogDuplicate(existingIds, dateToSync);
   apiCalls += dateCheckResult.apiCalls;
   
@@ -723,144 +724,47 @@ async function wellBehavedSyncAlgorithm(
       errorCategory: dateCheckResult.errorCategory
     };
   }
+  
+  // If current date is up-to-date, move to next day
   if (dateCheckResult.message === MESSAGES.LATEST_IS_DUPLICATE) {
     console.log(`Database is already up-to-date for date ${dateToSync}.`);
     lastCompletedDate = dateToSync;
     
     const nextDay = getNextDay(dateToSync);
     if (nextDay === null) {
-      console.log(`Date following ${dateToSync} is in the future. No more data to fetch.`);
       return {
         lifelogs: [],
         success: true,
-        message: "Database is already up-to-date.",
+        message: "Database is already up-to-date through today.",
         apiCalls
       };
     } 
     dateToSync = nextDay;
   }
   
-  // Step 2: Check for missing lifelogs on the current date
-  // const missingLogsResult = await checkMissingLogsForDate(lastSyncDate, existingIds);
-  // apiCalls += missingLogsResult.apiCalls;
-  
-  // if (!missingLogsResult.success) {
-  //   return {
-  //     lifelogs: [],
-  //     success: false,
-  //     message: `Failed to check for missing logs: ${missingLogsResult.message}`,
-  //     apiCalls,
-  //     errorCategory: missingLogsResult.errorCategory
-  //   };
-  // }
-  
-  // allNewLifelogs.push(...missingLogsResult.lifelogs);
-  
-  // // Step 3: Continue with ascending sync from the next day
-  // const nextDay = getNextDay(currentDate);
-  // if (nextDay === null) {
-  //   console.log(`Date ${currentDate} is in the future. No more data to fetch.`);
-  //   return {
-  //     lifelogs: allNewLifelogs,
-  //     success: true,
-  //     message: "Database is already up-to-date.",
-  //     apiCalls
-  //   };
-  // }
-  
-  // currentDate = nextDay;
-  
-  const result = await fetchAscendingStrategy(
+  // Use ascending strategy to fetch all lifelogs from the start date forward
+  const ascendingResult = await fetchAscendingStrategy(
     {
       date: dateToSync,
       direction: "asc",
+      includeMarkdown: true,
+      includeHeadings: true,
     },
     existingIds
   );
-  apiCalls += result.apiCalls;
-  if (!result.success) {
-    return {
-      lifelogs: result.lifelogs,
-      success: false,
-      message: result.message,
-      apiCalls,
-      errorCategory: result.errorCategory
-    };
-  }
+  
+  apiCalls += ascendingResult.apiCalls;
+  
   return {
-    lifelogs: result.lifelogs,
-    success: true,
-    message: result.message,
+    lifelogs: ascendingResult.lifelogs,
+    success: ascendingResult.success,
+    message: ascendingResult.message,
     apiCalls,
-    lastProcessedDate: result.lastProcessedDate
+    lastProcessedDate: ascendingResult.lastProcessedDate || lastCompletedDate,
+    errorCategory: ascendingResult.errorCategory
   };
 }
   
-  // Process subsequent dates in ascending order
-  // while (apiCalls < CONFIG.maxApiCalls) {
-  //   if (new Date(dateToSync) > new Date()) {
-  //     console.log(`Reached current date. ${MESSAGES.SYNC_COMPLETE}.`);
-  //     break;
-  //   }
-    
-  //   console.log(`Syncing date: ${dateToSync} (ascending)`);
-  //   const result = await fetchAscendingStrategy(
-  //     {
-  //       date: dateToSync,
-  //       direction: "asc",
-  //       includeMarkdown: true,
-  //       includeHeadings: true,
-  //     },
-  //     existingIds
-  //   );
-    
-  //   apiCalls += result.apiCalls;
-    
-  //   if (!result.success) {
-  //     return {
-  //       lifelogs: allNewLifelogs,
-  //       success: allNewLifelogs.length > 0,
-  //       message: `Partial sync completed before error: ${result.message}`,
-  //       lastProcessedDate: currentDate,
-  //       apiCalls,
-  //       errorCategory: result.errorCategory
-  //     };
-  //   }
-    
-  //   if (result.lifelogs.length > 0) {
-  //     console.log(`Found ${result.lifelogs.length} lifelogs for date ${currentDate}.`);
-  //     allNewLifelogs.push(...result.lifelogs);
-  //   } else {
-  //     console.log(`${MESSAGES.NO_LIFELOGS_FOUND} for date ${currentDate}.`);
-  //   }
-    
-  //   // Move to the next day
-  //   const nextDate = getNextDay(result.lastProcessedDate || currentDate);
-  //   if (nextDate === null) {
-  //     console.log(`Date following ${result.lastProcessedDate || currentDate} is in the future. No more data to fetch.`);
-  //     break;
-  //   }
-  //   currentDate = nextDate;
-    
-  //   // Check limits
-  //   if (allNewLifelogs.length >= CONFIG.maximumLimit) {
-  //     console.log(`${MESSAGES.REACHED_LIMIT} of ${CONFIG.maximumLimit} lifelogs. Stopping sync.`);
-  //     break;
-  //   }
-  // }
-  
-  // if (apiCalls >= CONFIG.maxApiCalls) {
-  //   console.log(`${MESSAGES.REACHED_MAX_API_CALLS} limit. Will resume on next sync.`);
-  // }
-  
-  // return {
-  //   lifelogs: allNewLifelogs,
-  //   success: true,
-  //   message: `Well-behaved sync complete. Retrieved ${allNewLifelogs.length} new lifelogs.`,
-  //   lastProcessedDate: currentDate,
-  //   apiCalls
-  // };
-// }
 
 // ================================================================================
 // MAIN SYNC LOGIC
@@ -1096,9 +1000,10 @@ export const syncLimitless = internalAction({
       console.error(`Existing metadata.endTime (${metadata.endTime}) is later than new batch endTime (${newEndTime})`);
     }
     // syncedUntil should reflect the timestamp of the latest known record
-    const updatedSyncedUntil = fetchResult.lastProcessedDate 
+    const processedDate = fetchResult.lastProcessedDate 
       ? new Date(fetchResult.lastProcessedDate).getTime() 
-      : updatedEndTime;
+      : 0;
+    const updatedSyncedUntil = Math.max(processedDate, updatedEndTime);
     const updatedLifelogIds = metadata.lifelogIds.concat(newLifelogIds);
 
     const operation = metadataOperation(
@@ -1126,6 +1031,7 @@ export const syncLimitless = internalAction({
     return true;
   },
 });
+
 
 // ================================================================================
 // PUBLIC API
