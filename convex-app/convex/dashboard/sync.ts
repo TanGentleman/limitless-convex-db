@@ -244,14 +244,14 @@ function handlePagination(
 ): PaginationResult {
   const nextCursor = meta.lifelogs?.nextCursor;
 
-  // Stop if there's no next cursor or if the API returned fewer results than requested
+  // Stop if the API returned fewer results than requested
   if (batchSize < requestedBatchSize) {
     console.log(
-      `${MESSAGES.FEWER_ITEMS} (${batchSize}/${requestedBatchSize}). Ending fetch.`,
+      `${MESSAGES.FEWER_ITEMS} (${batchSize}/${requestedBatchSize}).`,
     );
     return { continue: false, dateIsDone: true };
   }
-  
+  // If there's no next cursor, then we're done.
   if (!nextCursor) {
     console.log(`${MESSAGES.NO_NEXT_CURSOR}. Ending fetch.`);
     return { continue: false };
@@ -452,12 +452,14 @@ async function fetchAscendingStrategy(
   args: LifelogRequest,
   existingIds: Set<string>
 ): Promise<FetchResult> {
-  const allNewLifelogs: LimitlessLifelog[] = [];
+  
   let cursor = args.cursor;
   let duplicateBatches = 0;
   let apiCalls = 0;
-  let currentDate = args.date;
+  let lastCompletedDate: string | undefined = undefined;
   
+  const completedLifelogs: LimitlessLifelog[] = [];
+  const allNewLifelogs: LimitlessLifelog[] = [];
   while (apiCalls < CONFIG.maxApiCalls) {
     const batchSize = CONFIG.defaultBatchSize;
     const response = await makeApiRequest(args, cursor, batchSize);
@@ -466,10 +468,10 @@ async function fetchAscendingStrategy(
     if (!response.ok) {
       const error = await handleApiError(response);
       return {
-        lifelogs: [],
+        lifelogs: completedLifelogs,
         success: false,
         message: "Failed to fetch ascending lifelogs.",
-        lastProcessedDate: currentDate,
+        lastProcessedDate: lastCompletedDate,
         apiCalls,
         errorCategory: error.category
       };
@@ -481,24 +483,20 @@ async function fetchAscendingStrategy(
 
     if (lifelogsInBatch.length === 0) {
       console.log(`${MESSAGES.NO_LIFELOGS_FOUND} in this asc batch.`);
+      lastCompletedDate = args.date;
       if (CONFIG.experimentalAscDateIncrement && args.date) {
         console.log(`Incrementing date by 1 day.`);
-        const dateToIncrement = args.date;
-        if (dateToIncrement) {
-          const nextDay = getNextDay(dateToIncrement);
-          if (nextDay === null) {
-            // We're done fetching
-            console.log(
-              `Date ${dateToIncrement} is in the future. No more data to fetch.`,
-            );
-            break;
-          }
-          currentDate = nextDay;
-          args.date = currentDate;
-          args.cursor = undefined;
-          continue;
+        const nextDay = getNextDay(args.date);
+        if (nextDay === null) {
+          // We're done fetching
+          console.log(`Date ${args.date} is the last day of data. No more data to fetch.`);
+          break;
         }
+        args.date = nextDay;
+        args.cursor = undefined;
+        continue;
       }
+      // If we are not using a date, then break here.
       break;
     }
 
@@ -511,14 +509,11 @@ async function fetchAscendingStrategy(
         break;
       }
     }
+    // if (newLogs.length !== lifelogsInBatch.length) {
+    //   console.error(`Found a dupe in asc batch. This may have undefined behavior!`);
+    // }
     allNewLifelogs.push(...newLogs);
-
-    // Check if we've reached the maximum limit
-    if (allNewLifelogs.length >= CONFIG.maximumLimit) {
-      console.log(`${MESSAGES.REACHED_LIMIT} of ${CONFIG.maximumLimit} lifelogs. Stopping fetch.`);
-      break;
-    }
-
+    
     // Handle pagination
     const paginationResult = handlePagination(
       meta,
@@ -528,29 +523,30 @@ async function fetchAscendingStrategy(
       args.limit
     );
 
-    if (paginationResult.dateIsDone) {
-      if (allNewLifelogs.length === 0 && CONFIG.experimentalAscDateIncrement && args.date) {
-        const dateToIncrement = args.date;
-        if (dateToIncrement) {
-          const nextDay = getNextDay(dateToIncrement);
-          if (nextDay === null) {
-            // We're done fetching
-            console.log(
-              `Date ${dateToIncrement} is in the future. No more data to fetch.`,
-            );
-            break;
-          }
-          currentDate = nextDay;
-          args.date = currentDate;
-          args.cursor = undefined;
-          continue;
-        }
+    if (CONFIG.experimentalAscDateIncrement && args.date && !paginationResult.nextCursor) {
+      lastCompletedDate = args.date;
+      const nextDate = getNextDay(args.date);
+        if (nextDate === null) {
+          // We're done fetching
+          console.log(
+            `Date following ${args.date} is the last day of data. No more data to fetch.`,
+          );
+          break;
       }
-      console.log(`Date is done. Ending fetch.`);
-      break;
+      args.date = nextDate;
+      args.cursor = undefined;
+      completedLifelogs.push(...allNewLifelogs);
+      allNewLifelogs.length = 0;
+      continue;
     }
 
     if (!paginationResult.continue) {
+      break;
+    }
+
+    // Check if we've reached the maximum limit
+    if (completedLifelogs.length >= CONFIG.maximumLimit) {
+      console.log(`${MESSAGES.REACHED_LIMIT} of ${CONFIG.maximumLimit} lifelogs. Stopping fetch.`);
       break;
     }
     
@@ -558,10 +554,10 @@ async function fetchAscendingStrategy(
   }
 
   return {
-    lifelogs: allNewLifelogs,
+    lifelogs: completedLifelogs,
     success: true,
-    message: `Fetch complete (ascending). Retrieved ${allNewLifelogs.length} new lifelogs.`,
-    lastProcessedDate: currentDate,
+    message: `Fetch complete (ascending). Retrieved ${completedLifelogs.length} new lifelogs.`,
+    lastProcessedDate: lastCompletedDate,
     apiCalls
   };
 }
@@ -675,13 +671,18 @@ async function checkMissingLogsForDate(
  * @param existingIds - Set of existing lifelog IDs
  * @returns Promise<FetchResult> - The fetch result with lifelogs and status
  */
+
+// ADD USE OF LASTPROCESSEDDATE
 async function wellBehavedSyncAlgorithm(
   lastSyncDate: string,
   existingIds: Set<string>
 ): Promise<FetchResult> {
-  const allNewLifelogs: LimitlessLifelog[] = [];
+  if (!lastSyncDate) {
+    throw new Error("Last sync date is required for well-behaved sync.");
+  }
+  let dateToSync = lastSyncDate;
   let apiCalls = 0;
-  let currentDate = lastSyncDate;
+  let lastCompletedDate: string | undefined = undefined;
   
   // Step 1: Check if the DB is up-to-date with the latest lifelog (without date filter)
   if (CONFIG.runPreliminarySync) {
@@ -710,122 +711,156 @@ async function wellBehavedSyncAlgorithm(
   }
   
   // Step 1b: Check if the DB is up-to-date for the specific date
-  const dateCheckResult = await checkLatestLifelogDuplicate(existingIds, currentDate);
+  const dateCheckResult = await checkLatestLifelogDuplicate(existingIds, dateToSync);
   apiCalls += dateCheckResult.apiCalls;
   
   if (!dateCheckResult.success) {
     return {
       lifelogs: [],
       success: false,
-      message: `Failed to check if DB is up-to-date for date ${currentDate}: ${dateCheckResult.message}`,
+      message: `Failed to check if DB is up-to-date for date ${dateToSync}: ${dateCheckResult.message}`,
       apiCalls,
       errorCategory: dateCheckResult.errorCategory
     };
   }
-  
   if (dateCheckResult.message === MESSAGES.LATEST_IS_DUPLICATE) {
-    console.log(`Database is already up-to-date for date ${currentDate}.`);
-    const nextDay = getNextDay(currentDate);
-    if (nextDay !== null) {
-      currentDate = nextDay;
-    }
+    console.log(`Database is already up-to-date for date ${dateToSync}.`);
+    lastCompletedDate = dateToSync;
+    
+    const nextDay = getNextDay(dateToSync);
+    if (nextDay === null) {
+      console.log(`Date following ${dateToSync} is in the future. No more data to fetch.`);
+      return {
+        lifelogs: [],
+        success: true,
+        message: "Database is already up-to-date.",
+        apiCalls
+      };
+    } 
+    dateToSync = nextDay;
   }
   
   // Step 2: Check for missing lifelogs on the current date
-  const missingLogsResult = await checkMissingLogsForDate(currentDate, existingIds);
-  apiCalls += missingLogsResult.apiCalls;
+  // const missingLogsResult = await checkMissingLogsForDate(lastSyncDate, existingIds);
+  // apiCalls += missingLogsResult.apiCalls;
   
-  if (!missingLogsResult.success) {
+  // if (!missingLogsResult.success) {
+  //   return {
+  //     lifelogs: [],
+  //     success: false,
+  //     message: `Failed to check for missing logs: ${missingLogsResult.message}`,
+  //     apiCalls,
+  //     errorCategory: missingLogsResult.errorCategory
+  //   };
+  // }
+  
+  // allNewLifelogs.push(...missingLogsResult.lifelogs);
+  
+  // // Step 3: Continue with ascending sync from the next day
+  // const nextDay = getNextDay(currentDate);
+  // if (nextDay === null) {
+  //   console.log(`Date ${currentDate} is in the future. No more data to fetch.`);
+  //   return {
+  //     lifelogs: allNewLifelogs,
+  //     success: true,
+  //     message: "Database is already up-to-date.",
+  //     apiCalls
+  //   };
+  // }
+  
+  // currentDate = nextDay;
+  
+  const result = await fetchAscendingStrategy(
+    {
+      date: dateToSync,
+      direction: "asc",
+    },
+    existingIds
+  );
+  apiCalls += result.apiCalls;
+  if (!result.success) {
     return {
-      lifelogs: [],
+      lifelogs: result.lifelogs,
       success: false,
-      message: `Failed to check for missing logs: ${missingLogsResult.message}`,
+      message: result.message,
       apiCalls,
-      errorCategory: missingLogsResult.errorCategory
+      errorCategory: result.errorCategory
     };
   }
-  
-  allNewLifelogs.push(...missingLogsResult.lifelogs);
-  
-  // Step 3: Continue with ascending sync from the next day
-  const nextDay = getNextDay(currentDate);
-  if (nextDay === null) {
-    console.log(`Date ${currentDate} is in the future. No more data to fetch.`);
-    return {
-      lifelogs: allNewLifelogs,
-      success: true,
-      message: "Database is already up-to-date.",
-      apiCalls
-    };
-  }
-  
-  currentDate = nextDay;
-  
-  // Process subsequent dates in ascending order
-  while (apiCalls < CONFIG.maxApiCalls) {
-    if (new Date(currentDate) > new Date()) {
-      console.log(`Reached current date. ${MESSAGES.SYNC_COMPLETE}.`);
-      break;
-    }
-    
-    console.log(`Syncing date: ${currentDate} (ascending)`);
-    const result = await fetchAscendingStrategy(
-      {
-        date: currentDate,
-        direction: "asc",
-        includeMarkdown: true,
-        includeHeadings: true,
-      },
-      new Set([...existingIds, ...allNewLifelogs.map(log => log.id)])
-    );
-    
-    apiCalls += result.apiCalls;
-    
-    if (!result.success) {
-      return {
-        lifelogs: allNewLifelogs,
-        success: allNewLifelogs.length > 0,
-        message: `Partial sync completed before error: ${result.message}`,
-        lastProcessedDate: currentDate,
-        apiCalls,
-        errorCategory: result.errorCategory
-      };
-    }
-    
-    if (result.lifelogs.length > 0) {
-      console.log(`Found ${result.lifelogs.length} lifelogs for date ${currentDate}.`);
-      allNewLifelogs.push(...result.lifelogs);
-    } else {
-      console.log(`${MESSAGES.NO_LIFELOGS_FOUND} for date ${currentDate}.`);
-    }
-    
-    // Move to the next day
-    const nextDate = getNextDay(result.lastProcessedDate || currentDate);
-    if (nextDate === null) {
-      console.log(`Date following ${result.lastProcessedDate || currentDate} is in the future. No more data to fetch.`);
-      break;
-    }
-    currentDate = nextDate;
-    
-    // Check limits
-    if (allNewLifelogs.length >= CONFIG.maximumLimit) {
-      console.log(`${MESSAGES.REACHED_LIMIT} of ${CONFIG.maximumLimit} lifelogs. Stopping sync.`);
-      break;
-    }
-  }
-  
-  if (apiCalls >= CONFIG.maxApiCalls) {
-    console.log(`${MESSAGES.REACHED_MAX_API_CALLS} limit. Will resume on next sync.`);
-  }
-  
   return {
-    lifelogs: allNewLifelogs,
+    lifelogs: result.lifelogs,
     success: true,
-    message: `Well-behaved sync complete. Retrieved ${allNewLifelogs.length} new lifelogs.`,
-    lastProcessedDate: currentDate,
-    apiCalls
+    message: result.message,
+    apiCalls,
+    lastProcessedDate: result.lastProcessedDate
   };
 }
+  
+  // Process subsequent dates in ascending order
+  // while (apiCalls < CONFIG.maxApiCalls) {
+  //   if (new Date(dateToSync) > new Date()) {
+  //     console.log(`Reached current date. ${MESSAGES.SYNC_COMPLETE}.`);
+  //     break;
+  //   }
+    
+  //   console.log(`Syncing date: ${dateToSync} (ascending)`);
+  //   const result = await fetchAscendingStrategy(
+  //     {
+  //       date: dateToSync,
+  //       direction: "asc",
+  //       includeMarkdown: true,
+  //       includeHeadings: true,
+  //     },
+  //     existingIds
+  //   );
+    
+  //   apiCalls += result.apiCalls;
+    
+  //   if (!result.success) {
+  //     return {
+  //       lifelogs: allNewLifelogs,
+  //       success: allNewLifelogs.length > 0,
+  //       message: `Partial sync completed before error: ${result.message}`,
+  //       lastProcessedDate: currentDate,
+  //       apiCalls,
+  //       errorCategory: result.errorCategory
+  //     };
+  //   }
+    
+  //   if (result.lifelogs.length > 0) {
+  //     console.log(`Found ${result.lifelogs.length} lifelogs for date ${currentDate}.`);
+  //     allNewLifelogs.push(...result.lifelogs);
+  //   } else {
+  //     console.log(`${MESSAGES.NO_LIFELOGS_FOUND} for date ${currentDate}.`);
+  //   }
+    
+  //   // Move to the next day
+  //   const nextDate = getNextDay(result.lastProcessedDate || currentDate);
+  //   if (nextDate === null) {
+  //     console.log(`Date following ${result.lastProcessedDate || currentDate} is in the future. No more data to fetch.`);
+  //     break;
+  //   }
+  //   currentDate = nextDate;
+    
+  //   // Check limits
+  //   if (allNewLifelogs.length >= CONFIG.maximumLimit) {
+  //     console.log(`${MESSAGES.REACHED_LIMIT} of ${CONFIG.maximumLimit} lifelogs. Stopping sync.`);
+  //     break;
+  //   }
+  // }
+  
+  // if (apiCalls >= CONFIG.maxApiCalls) {
+  //   console.log(`${MESSAGES.REACHED_MAX_API_CALLS} limit. Will resume on next sync.`);
+  // }
+  
+  // return {
+  //   lifelogs: allNewLifelogs,
+  //   success: true,
+  //   message: `Well-behaved sync complete. Retrieved ${allNewLifelogs.length} new lifelogs.`,
+  //   lastProcessedDate: currentDate,
+  //   apiCalls
+  // };
+// }
 
 // ================================================================================
 // MAIN SYNC LOGIC
@@ -862,7 +897,7 @@ async function fetchLifelogs(
     if (CONFIG.useWellBehavedSyncAlgorithm && existingIds.size > 0) {
       // assert that args.date is defined
       if (args.date === undefined)  {
-        throw new Error("Date must be defined for well-behaved sync.");
+        throw new Error("Date param must be included for well-behaved sync.");
       }
       // Extract the date from the last synced timestamp
       const lastSyncDate = args.date;
@@ -877,10 +912,16 @@ async function fetchLifelogs(
       if (CONFIG.runPreliminarySync) {
         const latestCheckResult = await checkLatestLifelogDuplicate(existingIds);
         if (!latestCheckResult.success) {
-          return latestCheckResult;
+          return {
+            lifelogs: [],
+            success: false,
+            message: latestCheckResult.message,
+            apiCalls: latestCheckResult.apiCalls,
+            errorCategory: latestCheckResult.errorCategory
+          };
         }
         
-        const isDuplicate = latestCheckResult.message === "Latest lifelog is a duplicate.";
+        const isDuplicate = latestCheckResult.message === MESSAGES.LATEST_IS_DUPLICATE;
         if (isDuplicate) {
           console.log("Latest lifelog is a duplicate. No new lifelogs to fetch.");
           return {
@@ -1055,7 +1096,9 @@ export const syncLimitless = internalAction({
       console.error(`Existing metadata.endTime (${metadata.endTime}) is later than new batch endTime (${newEndTime})`);
     }
     // syncedUntil should reflect the timestamp of the latest known record
-    const updatedSyncedUntil = fetchResult.lastProcessedDate ? Math.max(new Date(fetchResult.lastProcessedDate).getTime(), updatedEndTime) : updatedEndTime;
+    const updatedSyncedUntil = fetchResult.lastProcessedDate 
+      ? new Date(fetchResult.lastProcessedDate).getTime() 
+      : updatedEndTime;
     const updatedLifelogIds = metadata.lifelogIds.concat(newLifelogIds);
 
     const operation = metadataOperation(
