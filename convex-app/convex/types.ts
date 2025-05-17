@@ -42,7 +42,7 @@ export type LifelogRequest = {
 
 /**
  * Database query parameters for retrieving lifelogs from the Convex database.
- * 
+ *
  * These parameters are used internally by the paginatedDocs query to filter
  * and sort lifelog documents.
  */
@@ -52,16 +52,15 @@ export type LifelogQueryParams = {
     numItems: number;
     cursor: string | null;
   };
-  
+
   /** Optional minimum startTime as unix timestamp (inclusive) */
   startTime?: number;
-  
+
   /** Optional maximum endTime as unix timestamp (inclusive) */
   endTime?: number;
-  
+
   direction: "asc" | "desc";
 };
-
 
 type ContentNode = {
   type: "heading1" | "heading2" | "heading3" | "blockquote";

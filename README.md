@@ -3,6 +3,7 @@
 Welcome! This repository showcases how to use Convex as a database and backend for the Limitless Pendant.
 - It's your personal data, so you can also self-host it :D
 - Reference implementations in TypeScript and Python for building on top of your apps
+- Full replacement for the Limitless API, simply replace the URL when requesting lifelogs from limitless.ai to your deployed Convex `*.site` URL.
 
 Check out `convex-app/README.md` to get set up.
 

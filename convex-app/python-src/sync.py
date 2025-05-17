@@ -29,7 +29,7 @@ def get_client() -> ConvexClient:
         raise ValueError("CONVEX_URL not set in .env")
     return ConvexClient(backend_url)
 
-def sync_now(client: ConvexClient, send_notification: bool = True) -> None:
+def sync_now(client: ConvexClient, send_notification: bool = DEFAULT_SLACK_NOTIFICATION) -> None:
     """Trigger immediate sync with optional notification"""
     return client.action("dashboard/sync:sync", {"sendNotification": send_notification})
 
@@ -42,7 +42,7 @@ def sync_later(client: ConvexClient, seconds: int = 0, minutes: int = 0, hours: 
         "days": days
     })
 
-def show_last_lifelog(client: ConvexClient, send_notification: bool = True) -> None:
+def show_last_lifelog(client: ConvexClient, send_notification: bool = DEFAULT_SLACK_NOTIFICATION) -> None:
     """Show the last lifelog entry with optional notification"""
     if not send_notification:
         return client.query("dashboard/previews:getPreviewLifelog")
@@ -84,7 +84,7 @@ def main():
     client = get_client()
     
     # Use the global setting by default, override only if --quiet is specified
-    send_notification = SEND_SLACK_NOTIFICATION
+    send_notification = DEFAULT_SLACK_NOTIFICATION
     if args.quiet:
         send_notification = False
     

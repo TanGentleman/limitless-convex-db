@@ -34,36 +34,25 @@ export const undoSync = internalMutation({
   }),
   handler: async (ctx, args): Promise<UndoSyncResult> => {
     const isDryRun = args.dryRun ?? false;
-
     // 1. Get the latest metadata document
-    const latestMetadata = await ctx.db.query("metadata").order("desc").first();
+    const metadataDocs = await ctx.db.query("metadata").order("desc").take(2);
 
-    if (!latestMetadata) {
+    if (metadataDocs.length === 0) {
       throw new Error("No metadata document found to undo sync");
     }
 
+    const latestMetadata = metadataDocs[0];
+
     // 2. Get the previous metadata document (if any)
-    const previousMetadata = await ctx.db
-      .query("metadata")
-      .order("desc")
-      .filter((q) =>
-        q.lt(q.field("_creationTime"), latestMetadata._creationTime),
-      )
-      .first();
+    const previousMetadata = metadataDocs.length > 1 ? metadataDocs[1] : null;
 
     // 3. Calculate which lifelogIds were added in the last sync
-    let lifelogIdsToDelete: string[] = [];
-
-    if (previousMetadata) {
-      // If we have a previous metadata document, remove the IDs that existed before
-      const previousIds = new Set(previousMetadata.lifelogIds);
-      lifelogIdsToDelete = latestMetadata.lifelogIds.filter(
-        (id) => !previousIds.has(id),
-      );
-    } else {
-      // If there's no previous metadata, all IDs in the latest were added in the last sync
-      lifelogIdsToDelete = latestMetadata.lifelogIds;
-    }
+    const lifelogIdsToDelete = previousMetadata
+      ? (() => {
+          const previousIds = new Set(previousMetadata.lifelogIds);
+          return latestMetadata.lifelogIds.filter((id) => !previousIds.has(id));
+        })()
+      : latestMetadata.lifelogIds;
 
     if (lifelogIdsToDelete.length === 0) {
       // No lifelogs to delete

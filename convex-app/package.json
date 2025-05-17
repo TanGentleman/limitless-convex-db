@@ -16,7 +16,8 @@
   "type": "module",
   "dependencies": {
     "@slack/webhook": "^7.0.5",
-    "convex": "^1.23.0"
+    "convex": "^1.24.1",
+    "moment-timezone": "^0.5.48"
   },
   "devDependencies": {
     "prettier": "^3.5.3"

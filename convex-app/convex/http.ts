@@ -4,6 +4,8 @@ import { internal } from "./_generated/api";
 import { formatDate } from "./extras/utils";
 import { LifelogQueryParams, LifelogRequest } from "./types";
 import { convertToLimitlessFormat } from "./types";
+import moment from "moment-timezone";
+
 
 const http = httpRouter();
 
@@ -19,11 +21,26 @@ function parseLifelogHttpParams(params: URLSearchParams): {
   const defaultDirection = "asc";
   const defaultLimit = 10;
 
-  // Helper function to safely parse date strings to timestamps
-  const parseDate = (dateString: string | undefined): number | undefined => {
+  /**
+   * Converts a date string in MM-DD-YYYY format to a timestamp
+   * @param dateString Date string in MM-DD-YYYY format
+   * @param timezone Timezone string (e.g. 'America/Los_Angeles')
+   * @returns Timestamp in milliseconds since epoch, or undefined if invalid
+   */
+  const dateParamToTimestamp = (dateString: string | undefined, timezone: string | undefined) => {
     if (dateString === undefined) return undefined;
-    const timestamp = new Date(dateString).getTime();
-    return isNaN(timestamp) ? undefined : timestamp;
+    if (dateString.length !== 10) {
+      throw new Error("Invalid date format. Expected format: MM-DD-YYYY");
+    }
+    
+    // Parse the date string (MM-DD-YYYY)
+    const [month, day, year] = dateString.split('-');
+    
+    // Use moment-timezone to handle timezone conversion properly
+    const date = moment.tz(`${year}-${month}-${day}`, timezone || 'UTC');
+    
+    // Return the timestamp or undefined if invalid
+    return date.isValid() ? date.valueOf() : undefined;
   };
 
   // Build LifelogRequest from query parameters
@@ -34,21 +51,34 @@ function parseLifelogHttpParams(params: URLSearchParams): {
     end: params.get("end") ?? undefined,
     cursor: params.get("cursor") ?? undefined,
     direction: (params.get("direction") ?? defaultDirection) as "asc" | "desc",
-    includeMarkdown: params.get("includeMarkdown") === "false" ? false : undefined,
-    includeHeadings: params.get("includeHeadings") === "false" ? false : undefined,
+    includeMarkdown:
+      params.get("includeMarkdown") === "false" ? false : undefined,
+    includeHeadings:
+      params.get("includeHeadings") === "false" ? false : undefined,
     limit: params.has("limit")
       ? parseInt(params.get("limit") as string)
       : undefined,
   };
 
   // Parse date parameter and calculate time boundaries
-  const dateTimestamp = requestOptions.date ? parseDate(requestOptions.date) : undefined;
-  const startTime = requestOptions.start ? parseDate(requestOptions.start) : dateTimestamp;
+  const dateTimestamp = requestOptions.date
+    ? dateParamToTimestamp(requestOptions.date, requestOptions.timezone)
+    : undefined;
   
-  // Set end time to start of next day if using date parameter
-  const endTime = requestOptions.end ? parseDate(requestOptions.end) : 
-    (dateTimestamp ? new Date(dateTimestamp).setHours(24, 0, 0, 0) : undefined);
+  const startTime = requestOptions.start
+    ? new Date(requestOptions.start).getTime()
+    : dateTimestamp;
 
+  // Set end time to exactly 24 hours after start time if using date parameter
+  const endTime = requestOptions.end
+    ? new Date(requestOptions.end).getTime()
+    : dateTimestamp && startTime !== undefined
+      ? startTime + 86400000  // Add exactly 24 hours (86400000 ms)
+      : undefined;
+  
+  console.log("startTime", startTime, "endTime", endTime, "timezone", requestOptions.timezone, 
+    startTime ? new Date(startTime).toLocaleString('en-US', { timeZone: requestOptions.timezone }) : undefined,
+    endTime ? new Date(endTime).toLocaleString('en-US', { timeZone: requestOptions.timezone }) : undefined);
   // Build database query parameters
   const queryParams = {
     startTime,
@@ -137,9 +167,14 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     try {
+      // Pre-req, user needs LIMITLESS_API_KEY set in env vars
+      if (!process.env.LIMITLESS_API_KEY) {
+        throw new Error("LIMITLESS_API_KEY is not set in env vars");
+      }
+
       // Verify API key from X-API-Key header or Authorization header
       const apiKey = request.headers.get("X-API-Key");
-      
+
       if (apiKey === null) {
         return new Response(
           JSON.stringify({
@@ -171,10 +206,15 @@ http.route({
 
       // Parse query parameters from URL
       const url = new URL(request.url);
-      const { requestOptions, queryParams } = parseLifelogHttpParams(url.searchParams);
-      
+      const { requestOptions, queryParams } = parseLifelogHttpParams(
+        url.searchParams,
+      );
+
       // Read lifelogs using internal query
-      const convexLifelogs = await ctx.runQuery(internal.lifelogs.paginatedDocs, queryParams);
+      const convexLifelogs = await ctx.runQuery(
+        internal.lifelogs.paginatedDocs,
+        queryParams,
+      );
 
       // Convert lifelogs to Limitless format
       const limitlessLifelogs = convertToLimitlessFormat(convexLifelogs.page);

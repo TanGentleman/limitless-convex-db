@@ -126,6 +126,12 @@ export const sendSlackNotification = internalAction({
     lifelogId: v.optional(v.id("lifelogs")),
   },
   handler: async (ctx, args) => {
+    const hasSlack = process.env.SLACK_WEBHOOK_URL !== undefined;
+    if (!hasSlack) {
+      console.error("SLACK_WEBHOOK_URL is not set");
+      return;
+    }
+
     const webhook = getWebhook();
 
     // If custom blocks are provided, use them directly

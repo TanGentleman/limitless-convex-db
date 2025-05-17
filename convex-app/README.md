@@ -33,16 +33,23 @@ You can port data easily from the Limitless pendant to a Convex database. All yo
    ```
 
 5. Set environment variables (This is important!):
-   - Via [Convex Dashboard](https://dashboard.convex.dev/): Add `LIMITLESS_API_KEY` and `TIMEZONE`
-   - Optionally add `SLACK_WEBHOOK_URL` to enable Slack notifications
+   - Via [Convex Dashboard](https://dashboard.convex.dev/): Add `LIMITLESS_API_KEY`
+  
    - Or via CLI:
-     ```bash
-     npx convex env set LIMITLESS_API_KEY=your_limitless_api_key
-     npx convex env set TIMEZONE=your_timezone
-     ```
-     For the `TIMEZONE` variable, use an IANA timezone name, such as `America/Los_Angeles`.
+   ```bash
+   npx convex env set LIMITLESS_API_KEY=your_limitless_api_key
+   ```
+   - Optionally add `SLACK_WEBHOOK_URL` to enable Slack notifications
+   - Optionally add `TIMEZONE` to make the timezone available to the backend, such as `America/Los_Angeles` (IANA timezone name).
 
-6. For Python integration:
+
+6. Run a manual sync to fetch your latest lifelogs from Limitless:
+   ```bash
+   npx convex run dashboard/sync:runSync
+   ```
+
+
+For Python integration:
    ```bash
    cd python-src
    pip install -r requirements.txt

@@ -42,11 +42,6 @@ Before you begin, ensure you have:
    ```bash
    pip install -r requirements.txt
    ```
-   
-   Or install directly:
-   ```bash
-   pip install convex python-dotenv
-   ```
 
 ## Configuration
 
@@ -59,7 +54,15 @@ Before you begin, ensure you have:
 
 ## Running the Code
 
-Execute the main script:
+Execute the main script(s):
 ```bash
-python main.py --help
+python sync.py --now
+python fetch_latest_lifelog.py
+```
+
+To  up a daily schedule for the next 14 days to run the sync:
+```
+cd convex-app/python-src
+source .venv/bin/activate
+python scheduler.py daily 14
 ```
