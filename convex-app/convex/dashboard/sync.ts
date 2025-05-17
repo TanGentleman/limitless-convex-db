@@ -89,7 +89,7 @@ interface FetchResult {
  */
 const CONFIG = {
   /** Number of lifelogs to fetch per API request */
-  defaultBatchSize: 20,
+  defaultBatchSize: 30,
   /** Maximum number of lifelogs to fetch per sync */
   maximumLimit: 200,
   /** Maximum consecutive duplicate batches before stopping */
@@ -468,7 +468,6 @@ async function fetchAscendingStrategy(
   args: LifelogRequest,
   existingIds: Set<string>,
 ): Promise<FetchResult> {
-  const completedLifelogs: LimitlessLifelog[] = [];
   const allNewLifelogs: LimitlessLifelog[] = [];
 
   let cursor = args.cursor;
@@ -484,7 +483,7 @@ async function fetchAscendingStrategy(
     if (!response.ok) {
       const error = await handleApiError(response);
       return {
-        lifelogs: completedLifelogs,
+        lifelogs: allNewLifelogs,
         success: false,
         message: "Failed to fetch ascending lifelogs.",
         lastProcessedDate: lastCompletedDate,
@@ -512,7 +511,7 @@ async function fetchAscendingStrategy(
           break;
         }
         args.date = nextDay;
-        args.cursor = undefined;
+        cursor = undefined;
         continue;
       }
       break;
@@ -551,19 +550,15 @@ async function fetchAscendingStrategy(
     ) {
       lastCompletedDate = args.date;
       const nextDate = getNextDay(args.date);
+      cursor = undefined;
 
       if (nextDate === null) {
         console.log(
-          `Date following ${args.date} is the last day of data. No more data to fetch.`,
+          `Date ${args.date} is the last day of data. No more data to fetch.`,
         );
         break;
       }
-
-      // Reset for next day
       args.date = nextDate;
-      args.cursor = undefined;
-      completedLifelogs.push(...allNewLifelogs);
-      allNewLifelogs.length = 0;
       continue;
     }
 
@@ -572,26 +567,13 @@ async function fetchAscendingStrategy(
       break;
     }
 
-    // Check if we've reached the maximum limit
-    if (completedLifelogs.length >= CONFIG.maximumLimit) {
-      console.log(
-        `${MESSAGES.REACHED_LIMIT} of ${CONFIG.maximumLimit} lifelogs. Stopping fetch.`,
-      );
-      break;
-    }
-
     cursor = paginationResult.nextCursor;
   }
 
-  // Add any remaining logs to the result
-  if (allNewLifelogs.length > 0) {
-    completedLifelogs.push(...allNewLifelogs);
-  }
-
   return {
-    lifelogs: completedLifelogs,
+    lifelogs: allNewLifelogs,
     success: true,
-    message: `Fetch complete (ascending). Retrieved ${completedLifelogs.length} new lifelogs.`,
+    message: `Fetch complete (ascending). Retrieved ${allNewLifelogs.length} new lifelogs.`,
     lastProcessedDate: lastCompletedDate,
     apiCalls,
   };
@@ -601,102 +583,6 @@ async function fetchAscendingStrategy(
 // WELL-BEHAVED SYNC ALGORITHM IMPLEMENTATION
 // ================================================================================
 
-/**
- * Checks if there are any missing lifelogs on a specific date.
- *
- * @param date - Date string in YYYY-MM-DD format to check
- * @param existingIds - Set of existing lifelog IDs
- * @returns Promise<FetchResult> - Result with missing lifelogs information
- */
-async function checkMissingLogsForDate(
-  date: string,
-  existingIds: Set<string>,
-): Promise<FetchResult> {
-  console.log(`Checking for missing lifelogs on ${date}...`);
-  if (!date) {
-    throw new Error("Date is required for checkMissingLogsForDate.");
-  }
-  const args: LifelogRequest = {
-    date: date,
-    direction: "desc",
-    includeMarkdown: true,
-    includeHeadings: true,
-  };
-
-  const missingLogs: LimitlessLifelog[] = [];
-  let apiCalls = 0;
-  let cursor: string | undefined = undefined;
-
-  let foundDuplicate = false;
-  while (apiCalls < CONFIG.checkPreviousDateCalls && !foundDuplicate) {
-    const response = await makeApiRequest(
-      args,
-      cursor,
-      CONFIG.defaultBatchSize,
-    );
-    apiCalls++;
-
-    if (!response.ok) {
-      const error = await handleApiError(response);
-      return {
-        lifelogs: missingLogs,
-        success: missingLogs.length > 0,
-        message: `Failed to check date ${date} for missing logs after ${apiCalls} API calls.`,
-        apiCalls,
-        errorCategory: error.category,
-      };
-    }
-
-    const data = await response.json();
-    const lifelogs: LimitlessLifelog[] = data.data?.lifelogs || [];
-
-    if (lifelogs.length === 0) {
-      foundDuplicate = true;
-      // success condition: Move on to next day if possible
-      break;
-    }
-
-    // Filter for new logs
-    const newLogs = lifelogs.filter((log) => !existingIds.has(log.id));
-    missingLogs.push(...newLogs);
-
-    // If we find duplicates, we've likely seen all data for this date
-    if (newLogs.length !== lifelogs.length) {
-      foundDuplicate = true;
-      break;
-    }
-
-    const meta: ApiResponseMeta = data.meta || {};
-    const nextCursor = meta.lifelogs?.nextCursor;
-
-    if (!nextCursor) {
-      break;
-    }
-
-    cursor = nextCursor;
-  }
-
-  console.log(`Found ${missingLogs.length} missing lifelogs for date ${date}.`);
-  if (!foundDuplicate) {
-    console.log(
-      `Descending strategy did not find duplicates for date ${date}.`,
-    );
-    return {
-      lifelogs: [],
-      success: false,
-      message: `Found ${missingLogs.length} missing lifelogs but no duplicate for date ${date} after ${apiCalls} API calls.`,
-      apiCalls,
-      errorCategory: "needDupeCondition",
-    };
-  }
-  return {
-    lifelogs: missingLogs.reverse(),
-    success: true,
-    message: `Found ${missingLogs.length} missing lifelogs for date ${date} after ${apiCalls} API calls. Duplicate was found.`,
-    apiCalls,
-    lastProcessedDate: date,
-  };
-}
 
 /**
  * Implements the Well-Behaved Sync Algorithm that efficiently syncs lifelogs
@@ -1000,14 +886,36 @@ export const syncLimitless = internalAction({
     // 4. Process fetched lifelogs
     if (fetchedLifelogs.length === 0) {
       console.log("No new lifelogs found from API.");
-      const operation = metadataOperation(
-        "sync",
-        `No new lifelogs found. ${existingIdsSet.size} lifelogs up to date. API calls: ${fetchResult.apiCalls}`,
-        true,
-      );
+      
+      // Check if we need to update syncedUntil timestamp
+      const lastProcessedTime = fetchResult.lastProcessedDate 
+        ? new Date(fetchResult.lastProcessedDate).getTime() 
+        : 0;
+      
+      let operationMessage = `No new lifelogs found. ${existingIdsSet.size} lifelogs up to date. API calls: ${fetchResult.apiCalls}`;
+      
+      // Update metadata if we have a newer processed date
+      if (lastProcessedTime > metadata.syncedUntil) {
+        // Update metadata with new syncedUntil value
+        await ctx.runMutation(internal.metadata.createDocs, {
+          metadataDocs: [{
+            startTime: metadata.startTime,
+            endTime: metadata.endTime,
+            lifelogIds: metadata.lifelogIds,
+            syncedUntil: lastProcessedTime,
+          }],
+        });
+        
+        // Add date update information to operation message
+        operationMessage = `No new lifelogs found. Updated sync date from ${formatDate(new Date(metadata.syncedUntil))} to ${formatDate(new Date(lastProcessedTime))}. ${existingIdsSet.size} lifelogs up to date. API calls: ${fetchResult.apiCalls}`;
+      }
+      
+      // Create operation record
+      const operation = metadataOperation("sync", operationMessage, true);
       await ctx.runMutation(internal.operations.createDocs, {
         operations: [operation],
       });
+      
       return false;
     }
 
