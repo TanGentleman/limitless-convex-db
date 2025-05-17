@@ -19,7 +19,7 @@ from dotenv import load_dotenv # type: ignore
 from convex import ConvexClient
 
 # Needs SLACK_WEBHOOK_URL to be set in Convex Environment
-SEND_SLACK_NOTIFICATION = True
+DEFAULT_SLACK_NOTIFICATION = True
 
 def get_client() -> ConvexClient:
     """Initialize Convex client from CONVEX_URL in .env"""
