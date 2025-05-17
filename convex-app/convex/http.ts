@@ -146,6 +146,11 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     try {
+      // Pre-req, user needs LIMITLESS_API_KEY set in env vars
+      if (!process.env.LIMITLESS_API_KEY) {
+        throw new Error("LIMITLESS_API_KEY is not set in env vars");
+      }
+
       // Verify API key from X-API-Key header or Authorization header
       const apiKey = request.headers.get("X-API-Key");
 
