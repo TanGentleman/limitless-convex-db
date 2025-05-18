@@ -58,7 +58,7 @@ class ScheduledFunction(TypedDict):
     completedTime: Optional[float]
     state: ScheduledFunctionState
 
-def get_scheduled_syncs() -> List[ScheduledFunction]:
+def print_scheduled_syncs() -> List[ScheduledFunction]:
     client = get_client()
     scheduled_syncs = client.query("extras/schedules:listSchedules", {"limit": 10})
     
@@ -74,7 +74,6 @@ def get_scheduled_syncs() -> List[ScheduledFunction]:
                 completed_str = f", Completed: {completed_time}"
             
             print(f"  {i}. {sync['name']} - Status: {status}, Scheduled: {scheduled_time}{completed_str}")
-            print(f"    Args: {sync['args']}")
         if not scheduled_syncs:
             print("  No scheduled syncs found")
     except Exception as e:
