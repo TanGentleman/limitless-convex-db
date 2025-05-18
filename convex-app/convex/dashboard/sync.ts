@@ -795,6 +795,10 @@ async function fetchLifelogs(
  */
 export const syncLimitless = internalAction({
   handler: async (ctx) => {
+    // Check if the API key is set
+    if (!process.env.LIMITLESS_API_KEY) {
+      throw new Error("LIMITLESS_API_KEY environment variable not set");
+    }
     // 1. Retrieve metadata about previously synced lifelogs
     const metadata = await ctx.runMutation(
       internal.extras.tests.getMetadataDoc,
