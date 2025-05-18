@@ -22,7 +22,7 @@ Arguments:
 import argparse
 import sys
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, TypedDict, Optional, Union, Literal
+from typing import List, Dict, Any, TypedDict, Union, Literal, NotRequired
 
 from sync import get_client, sync_later
 
@@ -56,7 +56,7 @@ class ScheduledFunction(TypedDict):
     name: str
     # args: List[Any]
     scheduledTime: float
-    completedTime: Optional[float]
+    completedTime: NotRequired[float]
     state: ScheduledFunctionState
 
 def print_scheduled_syncs() -> List[ScheduledFunction]:
@@ -70,7 +70,7 @@ def print_scheduled_syncs() -> List[ScheduledFunction]:
             status = sync['state']['kind']
             scheduled_time = datetime.fromtimestamp(sync['scheduledTime']/1000).strftime('%Y-%m-%d %H:%M:%S')
             completed_str = ""
-            if sync['completedTime']:
+            if sync.get('completedTime'):
                 completed_time = datetime.fromtimestamp(sync['completedTime']/1000).strftime('%Y-%m-%d %H:%M:%S')
                 completed_str = f", Completed: {completed_time}"
             
