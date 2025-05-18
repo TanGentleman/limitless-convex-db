@@ -11,6 +11,7 @@ Usage:
     python scheduler.py weekly 4                  # Schedule weekly syncs for the next 4 weeks
     python scheduler.py hourly 12 --start 22:00   # Schedule 12 hourly syncs starting at 10 PM
     python scheduler.py daily 5 --start 08:30     # Schedule 5 daily syncs starting at 8:30 AM
+    python scheduler.py list                      # List all currently scheduled syncs
 
 Arguments:
     interval    Type of interval (hourly, daily, weekly)
@@ -150,9 +151,22 @@ def schedule_recurring_syncs(
 
 def main():
     parser = argparse.ArgumentParser(description="Schedule recurring Limitless data syncs")
-    parser.add_argument("interval", choices=["hourly", "daily", "weekly"], 
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+    
+    # List command
+    list_parser = subparsers.add_parser("list", help="List all currently scheduled syncs")
+    
+    # Schedule command (default behavior)
+    schedule_parser = subparsers.add_parser("schedule", help="Schedule recurring syncs")
+    schedule_parser.add_argument("interval", choices=["hourly", "daily", "weekly"], 
                         help="Interval between syncs")
-    parser.add_argument("count", type=int, help="Number of syncs to schedule")
+    schedule_parser.add_argument("count", type=int, help="Number of syncs to schedule")
+    schedule_parser.add_argument("--start", type=str, help="Start time in format HH:MM (24-hour)")
+    
+    # For backward compatibility, also accept the old format without explicit subcommands
+    parser.add_argument("interval", nargs="?", choices=["hourly", "daily", "weekly"], 
+                        help="Interval between syncs")
+    parser.add_argument("count", nargs="?", type=int, help="Number of syncs to schedule")
     parser.add_argument("--start", type=str, help="Start time in format HH:MM (24-hour)")
     
     if len(sys.argv) == 1:
@@ -161,14 +175,35 @@ def main():
         
     args = parser.parse_args()
     
-    scheduled = schedule_recurring_syncs(args.interval, args.count, args.start)
+    # Handle list command
+    if args.command == "list" or (len(sys.argv) > 1 and sys.argv[1] == "list"):
+        print_scheduled_syncs()
+        return
     
-    if scheduled:
-        print(f"Successfully scheduled {len(scheduled)} {args.interval} sync operations:")
-        for sync in scheduled:
-            print(f"  {sync['index']}. Scheduled for: {sync['scheduled_at']}")
+    # Handle schedule command or legacy format
+    if args.command == "schedule" or args.interval:
+        interval = args.interval
+        count = args.count
+        start_time = args.start
+        
+        if not interval or not count:
+            parser.print_help()
+            return
+            
+        scheduled = schedule_recurring_syncs(interval, count, start_time)
+        
+        if scheduled:
+            print(f"Successfully scheduled {len(scheduled)} {interval} sync operations:")
+            for sync in scheduled:
+                print(f"  {sync['index']}. Scheduled for: {sync['scheduled_at']}")
+            
+            # Show the current schedule after adding new syncs
+            print("\nCurrent schedule after adding new syncs:")
+            print_scheduled_syncs()
+        else:
+            print("No sync operations were scheduled. Check your parameters.")
     else:
-        print("No sync operations were scheduled. Check your parameters.")
+        parser.print_help()
 
 
 if __name__ == "__main__":
