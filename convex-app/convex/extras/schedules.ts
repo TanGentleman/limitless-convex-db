@@ -1,5 +1,5 @@
 import { internal } from "../_generated/api";
-import { internalQuery } from "../_generated/server";
+import { internalQuery, query } from "../_generated/server";
 import { v } from "convex/values";
 import { action } from "../_generated/server";
 
@@ -38,6 +38,30 @@ export const isSyncScheduled = internalQuery({
     return false;
   },
 });
+
+export const listSchedules = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<any[]> => {
+    const { limit = 100 } = args;
+    
+    // Query for scheduled functions
+    const scheduledFunctions = await ctx.db.system
+      .query("_scheduled_functions")
+      .take(limit);
+    
+    return scheduledFunctions.map(func => ({
+      // id: func._id,
+      name: func.name,
+      // args: func.args,
+      scheduledTime: func.scheduledTime,
+      completedTime: func.completedTime,
+      state: func.state,
+    }));
+  },
+});
+
 
 export const scheduleSync = action({
   args: {

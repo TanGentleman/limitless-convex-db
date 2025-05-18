@@ -21,10 +21,66 @@ Arguments:
 import argparse
 import sys
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, TypedDict, Optional, Union, Literal
 
 from sync import get_client, sync_later
 
+class ScheduledFunctionStatePending(TypedDict):
+    kind: Literal["pending"]
+
+class ScheduledFunctionStateInProgress(TypedDict):
+    kind: Literal["inProgress"]
+
+class ScheduledFunctionStateSuccess(TypedDict):
+    kind: Literal["success"]
+
+class ScheduledFunctionStateFailed(TypedDict):
+    kind: Literal["failed"]
+    error: str
+
+class ScheduledFunctionStateCanceled(TypedDict):
+    kind: Literal["canceled"]
+
+ScheduledFunctionState = Union[
+    ScheduledFunctionStatePending,
+    ScheduledFunctionStateInProgress,
+    ScheduledFunctionStateSuccess,
+    ScheduledFunctionStateFailed,
+    ScheduledFunctionStateCanceled
+]
+
+class ScheduledFunction(TypedDict):
+    # _id: str
+    _creationTime: float
+    name: str
+    # args: List[Any]
+    scheduledTime: float
+    completedTime: Optional[float]
+    state: ScheduledFunctionState
+
+def get_scheduled_syncs() -> List[ScheduledFunction]:
+    client = get_client()
+    scheduled_syncs = client.query("extras/schedules:listSchedules", {"limit": 10})
+    
+    # Print the scheduled syncs for debugging
+    try:
+        print("Scheduled Syncs:")
+        for i, sync in enumerate(scheduled_syncs, 1):
+            status = sync['state']['kind']
+            scheduled_time = datetime.fromtimestamp(sync['scheduledTime']/1000).strftime('%Y-%m-%d %H:%M:%S')
+            completed_str = ""
+            if sync['completedTime']:
+                completed_time = datetime.fromtimestamp(sync['completedTime']/1000).strftime('%Y-%m-%d %H:%M:%S')
+                completed_str = f", Completed: {completed_time}"
+            
+            print(f"  {i}. {sync['name']} - Status: {status}, Scheduled: {scheduled_time}{completed_str}")
+            print(f"    Args: {sync['args']}")
+        if not scheduled_syncs:
+            print("  No scheduled syncs found")
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    return scheduled_syncs
 
 def schedule_recurring_syncs(
     interval: str, 
