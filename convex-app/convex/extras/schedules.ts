@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { action } from "../_generated/server";
 
 // Time window constants in milliseconds
-const TIME_WINDOW_BUFFER = 15000; // 15 seconds buffer
+const TIME_WINDOW_BUFFER = 30000; // 15 seconds buffer
 
 export const isSyncScheduled = internalQuery({
   args: {
@@ -20,30 +20,22 @@ export const isSyncScheduled = internalQuery({
     // Query for any scheduled sync within our time window
     const scheduledFunctions = await ctx.db.system
       .query("_scheduled_functions")
-      .order("desc")
-      .filter((q) =>
-        q.or(
-          // Check for pending syncs within our time window
-          q.and(
-            q.eq(q.field("completedTime"), undefined),
-            q.eq(q.field("name"), "dashboard/sync.js:runSync"),
-            q.gte(q.field("scheduledTime"), windowStart),
-            q.lte(q.field("scheduledTime"), windowEnd),
-          ),
-          // Check for recently completed syncs
-          q.and(
-            q.neq(q.field("completedTime"), undefined),
-            q.eq(q.field("name"), "dashboard/sync.js:runSync"),
-            q.gte(
-              q.field("completedTime"),
-              targetTimestamp - TIME_WINDOW_BUFFER,
-            ),
-          ),
-        ),
-      )
-      .take(1);
-
-    return scheduledFunctions.length > 0;
+      .collect()
+    
+    // Filter the scheduled functions to only include the ones that are within the time window
+    if (scheduledFunctions.length > 0) {
+      for (const scheduledFunction of scheduledFunctions) {
+        if (scheduledFunction.name === "dashboard/sync.js:runSync") {
+          if (scheduledFunction.completedTime === undefined && scheduledFunction.scheduledTime >= windowStart && scheduledFunction.scheduledTime <= windowEnd) {
+            return true;
+          }
+          else if (scheduledFunction.completedTime !== undefined && scheduledFunction.completedTime >= windowStart && scheduledFunction.completedTime <= windowEnd) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   },
 });
 
