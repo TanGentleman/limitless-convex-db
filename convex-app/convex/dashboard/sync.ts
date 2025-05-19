@@ -415,7 +415,7 @@ async function fetchDescendingStrategy(
       return {
         lifelogs: [],
         success: false,
-        message: `Unsuccessful sync. Do not try this strategy with ${CONFIG.maximumLimit}+ pending lifelogs.`,
+        message: `Unsuccessful sync. Do not try descending strategy with ${CONFIG.maximumLimit}+ pending lifelogs.`,
         apiCalls,
       };
     }
@@ -770,6 +770,8 @@ async function fetchLifelogs(
 
       return await fetchDescendingStrategy(args, existingIds);
     } else {
+      // wait 0.5 seconds
+      await new Promise((resolve) => setTimeout(resolve, 500));
       return await fetchAscendingStrategy(args, existingIds);
     }
   } catch (error) {
