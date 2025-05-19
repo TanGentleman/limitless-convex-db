@@ -49,6 +49,7 @@ export const listSchedules = query({
     // Query for scheduled functions
     const scheduledFunctions = await ctx.db.system
       .query("_scheduled_functions")
+      .order("desc")
       .take(limit);
     
     return scheduledFunctions.map(func => ({
