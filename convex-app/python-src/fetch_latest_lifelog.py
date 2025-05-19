@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 class LifelogContent(TypedDict):
     content: str
-    type: Literal["heading1", "heading2", "heading3", "blockquote"]
+    type: Literal["heading1", "heading2", "heading3", "blockquote", "paragraph"]
     startTime: Optional[float]
     endTime: Optional[float]
     children: Optional[List[Any]]
@@ -116,6 +116,8 @@ def main():
                         console.print(f"[bold green]### {content_text}[/bold green]")
                     elif content_type == "blockquote":
                         console.print(f"[italic blue]> {content_text}[/italic blue]")
+                    elif content_type == "paragraph":
+                        console.print(f"[bold blue]{content_text}[/bold blue]")
         else:
             console.print("[red]No lifelog entries found.[/red]")
     except Exception as e:

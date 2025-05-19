@@ -13,6 +13,7 @@ export default defineSchema({
           v.literal("heading2"),
           v.literal("heading3"),
           v.literal("blockquote"),
+          v.literal("paragraph"),
         ),
         content: v.string(),
         startTime: v.optional(v.number()),

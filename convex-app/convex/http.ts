@@ -36,8 +36,8 @@ function parseLifelogHttpParams(params: URLSearchParams): {
     // Parse the date string (MM-DD-YYYY)
     const [month, day, year] = dateString.split('-');
     
-    // Use moment-timezone to handle timezone conversion properly
-    const date = moment.tz(`${year}-${month}-${day}`, timezone || 'UTC');
+    // Use moment-timezone with explicit format to avoid deprecation warning
+    const date = moment.tz(`${year}-${month}-${day}`, "YYYY-MM-DD", timezone || 'UTC');
     
     // Return the timestamp or undefined if invalid
     return date.isValid() ? date.valueOf() : undefined;
@@ -76,9 +76,10 @@ function parseLifelogHttpParams(params: URLSearchParams): {
       ? startTime + 86400000  // Add exactly 24 hours (86400000 ms)
       : undefined;
   
-  console.log("startTime", startTime, "endTime", endTime, "timezone", requestOptions.timezone, 
-    startTime ? new Date(startTime).toLocaleString('en-US', { timeZone: requestOptions.timezone }) : undefined,
-    endTime ? new Date(endTime).toLocaleString('en-US', { timeZone: requestOptions.timezone }) : undefined);
+  // log the start and end times in the timezone
+  // console.log("startTime", startTime, "endTime", endTime, "timezone", requestOptions.timezone, 
+  //   startTime ? new Date(startTime).toLocaleString('en-US', { timeZone: requestOptions.timezone }) : undefined,
+  //   endTime ? new Date(endTime).toLocaleString('en-US', { timeZone: requestOptions.timezone }) : undefined);
   // Build database query parameters
   const queryParams = {
     startTime,

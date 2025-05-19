@@ -415,7 +415,7 @@ async function fetchDescendingStrategy(
       return {
         lifelogs: [],
         success: false,
-        message: `Unsuccessful sync. Do not try this strategy with ${CONFIG.maximumLimit}+ pending lifelogs.`,
+        message: `Unsuccessful sync. Do not try descending strategy with ${CONFIG.maximumLimit}+ pending lifelogs.`,
         apiCalls,
       };
     }
@@ -770,6 +770,8 @@ async function fetchLifelogs(
 
       return await fetchDescendingStrategy(args, existingIds);
     } else {
+      // wait 0.5 seconds
+      await new Promise((resolve) => setTimeout(resolve, 500));
       return await fetchAscendingStrategy(args, existingIds);
     }
   } catch (error) {
@@ -795,6 +797,10 @@ async function fetchLifelogs(
  */
 export const syncLimitless = internalAction({
   handler: async (ctx) => {
+    // Check if the API key is set
+    if (!process.env.LIMITLESS_API_KEY) {
+      throw new Error("LIMITLESS_API_KEY environment variable not set");
+    }
     // 1. Retrieve metadata about previously synced lifelogs
     const metadata = await ctx.runMutation(
       internal.extras.tests.getMetadataDoc,
