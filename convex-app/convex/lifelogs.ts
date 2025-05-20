@@ -33,11 +33,10 @@ export const createDocs = internalMutation({
     const createdLifelogIds: string[] = [];
 
     for (const lifelog of args.lifelogs) {
-      let embeddingId: Id<"markdownEmbeddings"> | null =
-        lifelog.embeddingId ?? null;
+      let embeddingId: Id<"markdownEmbeddings"> | null = lifelog.embeddingId;
 
       // Create a new embedding if markdown exists and no embeddingId was provided
-      if (!embeddingId && lifelog.markdown) {
+      if (embeddingId === null && lifelog.markdown) {
         embeddingId = await ctx.db.insert("markdownEmbeddings", {
           lifelogId: lifelog.lifelogId, // Link embedding to the lifelog
           markdown: lifelog.markdown,
@@ -139,6 +138,7 @@ export const paginatedDocs = internalQuery({
 
     return paginatedResults;
   },
+  // NOTE: Add "read operation when running in a mutation
 });
 
 /**
