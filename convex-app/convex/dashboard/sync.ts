@@ -210,35 +210,6 @@ function validateFetchParams(args: LifelogRequest): void {
 }
 
 /**
- * Processes a batch of lifelogs and checks for duplicates.
- * Returns the new lifelogs to add and whether a duplicate was found.
- *
- * @param lifelogsInBatch - Batch of lifelogs to process
- * @param existingIds - Set of existing lifelog IDs to detect duplicates
- * @returns Object containing new lifelogs and duplicate flag
- */
-function processBatchWithDuplicateCheck(
-  lifelogsInBatch: LimitlessLifelog[],
-  existingIds: Set<string>,
-): { batchToAdd: LimitlessLifelog[]; foundDuplicate: boolean } {
-  let foundDuplicate = false;
-  const batchToAdd: LimitlessLifelog[] = [];
-
-  for (const log of lifelogsInBatch) {
-    if (existingIds.has(log.id)) {
-      console.log(
-        `${MESSAGES.DUPLICATE_FOUND} ${log.id} (endTime: ${log.endTime ? formatDate(log.endTime) : "N/A"}). Stopping fetch.`,
-      );
-      foundDuplicate = true;
-      break;
-    }
-    batchToAdd.push(log);
-  }
-
-  return { batchToAdd, foundDuplicate };
-}
-
-/**
  * Handles pagination logic.
  *
  * @param meta - API response metadata containing pagination information
@@ -366,7 +337,7 @@ async function fetchDescendingStrategy(
 ): Promise<FetchResult> {
   const allNewLifelogs: LimitlessLifelog[] = [];
   let cursor = args.cursor;
-  let foundDuplicateInAnyBatch = false;
+  let foundDuplicate = false;
   let apiCalls = 0;
 
   while (apiCalls < CONFIG.maxApiCalls) {
@@ -395,18 +366,24 @@ async function fetchDescendingStrategy(
       );
       break;
     }
-
     // Process batch and check for duplicates
-    const { batchToAdd, foundDuplicate } = processBatchWithDuplicateCheck(
-      lifelogsInBatch,
-      existingIds,
-    );
+    const batchToAdd: LimitlessLifelog[] = [];
+
+    for (const log of lifelogsInBatch) {
+      if (existingIds.has(log.id)) {
+        console.log(
+          `${MESSAGES.DUPLICATE_FOUND} ${log.id} (endTime: ${log.endTime ? formatDate(log.endTime) : "N/A"}). Stopping fetch.`,
+        );
+        foundDuplicate = true;
+        break;
+      }
+      batchToAdd.push(log);
+    }
 
     allNewLifelogs.push(...batchToAdd);
 
     // Track if we found a duplicate in any batch
     if (foundDuplicate) {
-      foundDuplicateInAnyBatch = true;
       break;
     }
 
@@ -438,12 +415,12 @@ async function fetchDescendingStrategy(
 
   // In descending strategy, return results only if we found a duplicate or reached the limit
   const foundEndOfNewData =
-    foundDuplicateInAnyBatch || allNewLifelogs.length >= CONFIG.maximumLimit;
+    foundDuplicate || allNewLifelogs.length >= CONFIG.maximumLimit;
 
   return {
     lifelogs: foundEndOfNewData ? allNewLifelogs : [],
     success: foundEndOfNewData,
-    message: foundDuplicateInAnyBatch
+    message: foundDuplicate
       ? `Found ${allNewLifelogs.length} new lifelogs until duplicate.`
       : allNewLifelogs.length >= CONFIG.maximumLimit
         ? `${MESSAGES.REACHED_LIMIT} of ${CONFIG.maximumLimit} lifelogs without finding duplicate.`
