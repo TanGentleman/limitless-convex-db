@@ -42,6 +42,7 @@ export const createDocs = internalMutation({
           markdown: lifelog.markdown,
           embedding: undefined, // Embedding vector will be generated later
         });
+        // Schedule the embedding generation
       }
 
       // Insert the lifelog document
@@ -182,12 +183,30 @@ export const getDocsByLifelogId = internalQuery({
       const lifelog = await ctx.db
         .query("lifelogs")
         .withIndex("by_lifelog_id", (q) => q.eq("lifelogId", lifelogId))
-        .first(); // Use first() as lifelogId should be unique (or we only want one)
+        .first();
 
       if (lifelog) {
         lifelogs.push(lifelog);
       } else {
         console.warn(`WARNING: Lifelog with lifelogId ${lifelogId} not found`);
+      }
+    }
+    return lifelogs;
+  },
+});
+
+export const getById = internalQuery({
+  args: {
+    ids: v.array(v.id("lifelogs")),
+  },
+  handler: async (ctx, args) => {
+    const lifelogs: Doc<"lifelogs">[] = [];
+    for (const id of args.ids) {
+      const lifelog = await ctx.db.get(id);
+      if (lifelog !== null) {
+        lifelogs.push(lifelog);
+      } else {
+        console.warn(`WARNING: Lifelog with id ${id} not found`);
       }
     }
     return lifelogs;
