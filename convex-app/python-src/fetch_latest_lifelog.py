@@ -61,8 +61,6 @@ def get_latest_lifelog() -> Optional[Lifelog]:
     Returns:
         Optional[Lifelog]: The latest lifelog entry or None if no entries exist
     """
-    # Load environment variables
-    load_dotenv()
     
     # Get Convex URL from environment
     convex_url = os.getenv("CONVEX_URL")
@@ -79,6 +77,10 @@ def get_latest_lifelog() -> Optional[Lifelog]:
 
 def main():
     INCLUDE_STRUCTURED_CONTENTS = False
+    
+    # Load environment variables
+    load_dotenv()
+
     try:
         console = Console()
         latest = get_latest_lifelog()

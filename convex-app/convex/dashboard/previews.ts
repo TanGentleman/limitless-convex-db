@@ -9,11 +9,11 @@ type Lifelog = Doc<"lifelogs">;
 
 export const getPreviewLifelog = query({
   handler: async (ctx) => {
-    const lastLifelog = await ctx.db.query("lifelogs").order("desc").take(1);
-    if (lastLifelog.length === 0) {
+    const lastLifelog = await ctx.db.query("lifelogs").order("desc").first();
+    if (lastLifelog === null) {
       return null;
     }
-    return lastLifelog[0];
+    return lastLifelog;
   },
 });
 
