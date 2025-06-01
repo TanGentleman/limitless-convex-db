@@ -106,6 +106,8 @@ const CONFIG = {
   useWellBehavedSyncAlgorithm: true,
   /** Number of API calls to check for gaps on previous date */
   checkPreviousDateCalls: 2,
+  /** Time in milliseconds before metadata is considered stale (3 minutes) */
+  staleTimeLimit: 3 * 60 * 1000,
 };
 
 // ================================================================================
@@ -782,6 +784,11 @@ export const syncLimitless = internalAction({
     const metadata = await ctx.runMutation(
       internal.extras.tests.getMetadataDoc,
     );
+    // if metadata is not stale, return true (3 minutes)
+    if (metadata._creationTime > Date.now() - CONFIG.staleTimeLimit) {
+      console.log("Metadata is stale. Skipping sync.");
+      return false;
+    }
     const existingIdsSet = new Set<string>(metadata.lifelogIds);
     console.log(
       `Metadata: ${existingIdsSet.size} existing lifelog IDs, Synced until: ${metadata.syncedUntil ? formatDate(metadata.syncedUntil) : "N/A"}`,
