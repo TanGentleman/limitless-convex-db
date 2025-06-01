@@ -38,7 +38,6 @@ class Lifelog(TypedDict):
 def format_timestamp(timestamp: float) -> str:
     """Convert Unix timestamp to human readable format with timezone."""
     # Load environment variables if not already loaded
-    load_dotenv()
     
     # Get timezone from environment variable, default to UTC
     timezone_str = os.getenv("TIMEZONE", "UTC")
@@ -61,6 +60,7 @@ def get_latest_lifelog() -> Optional[Lifelog]:
     Returns:
         Optional[Lifelog]: The latest lifelog entry or None if no entries exist
     """
+    # Load environment variables
     
     # Get Convex URL from environment
     convex_url = os.getenv("CONVEX_URL")
@@ -76,11 +76,9 @@ def get_latest_lifelog() -> Optional[Lifelog]:
     return latest_lifelog
 
 def main():
+    load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
     INCLUDE_STRUCTURED_CONTENTS = False
-    
-    # Load environment variables
-    load_dotenv()
-
+    INCLUDE_MARKDOWN = True
     try:
         console = Console()
         latest = get_latest_lifelog()
@@ -97,7 +95,7 @@ def main():
             console.print(Panel(table, title="📝 Latest Lifelog Entry", border_style="blue"))
             
             # Display markdown content if present
-            if latest['markdown']:
+            if INCLUDE_MARKDOWN and latest['markdown']:
                 console.print("\n[bold blue]Markdown Content:[/bold blue]")
                 md = Markdown(latest['markdown'])
                 console.print(Panel(md, border_style="green"))
