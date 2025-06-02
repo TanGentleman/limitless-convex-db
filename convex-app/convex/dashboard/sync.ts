@@ -786,7 +786,7 @@ export const syncLimitless = internalAction({
     );
     // if metadata is not stale, return true (3 minutes)
     if (metadata._creationTime > Date.now() - CONFIG.staleTimeLimit) {
-      console.log("Metadata is stale. Skipping sync.");
+      console.log("Metadata is fresh. Skipping sync.");
       return false;
     }
     const existingIdsSet = new Set<string>(metadata.lifelogIds);
