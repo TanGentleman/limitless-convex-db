@@ -18,7 +18,7 @@ components:
       properties:
         type:
           type: string
-          description: Type of content node (e.g., heading1, heading2, heading3, blockquote). More types might be added.
+          description: Type of content node (e.g., heading1, heading2, heading3, blockquote, paragraph). More types might be added.
         content:
           type: string
           description: Content of the node.
