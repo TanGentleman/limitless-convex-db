@@ -1,5 +1,5 @@
-import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
+import { defineSchema, defineTable } from 'convex/server';
+import { v } from 'convex/values';
 
 export default defineSchema({
   lifelogs: defineTable({
@@ -9,11 +9,11 @@ export default defineSchema({
     contents: v.array(
       v.object({
         type: v.union(
-          v.literal("heading1"),
-          v.literal("heading2"),
-          v.literal("heading3"),
-          v.literal("blockquote"),
-          v.literal("paragraph"),
+          v.literal('heading1'),
+          v.literal('heading2'),
+          v.literal('heading3'),
+          v.literal('blockquote'),
+          v.literal('paragraph'),
         ),
         content: v.string(),
         startTime: v.optional(v.number()),
@@ -22,21 +22,21 @@ export default defineSchema({
         endOffsetMs: v.optional(v.number()),
         children: v.optional(v.array(v.any())),
         speakerName: v.optional(v.union(v.string(), v.null())),
-        speakerIdentifier: v.optional(v.union(v.literal("user"), v.null())),
+        speakerIdentifier: v.optional(v.union(v.literal('user'), v.null())),
       }),
     ),
     startTime: v.number(),
     endTime: v.number(),
-    embeddingId: v.union(v.id("markdownEmbeddings"), v.null()),
+    embeddingId: v.union(v.id('markdownEmbeddings'), v.null()),
   })
-    .index("by_start_time", ["startTime"])
-    .index("by_lifelog_id", ["lifelogId"])
-    .searchIndex("search_title_content", {
-      searchField: "title",
+    .index('by_start_time', ['startTime'])
+    .index('by_lifelog_id', ['lifelogId'])
+    .searchIndex('search_title_content', {
+      searchField: 'title',
     })
-    .searchIndex("search_markdown_content", {
-      searchField: "markdown",
-      filterFields: ["lifelogId"],
+    .searchIndex('search_markdown_content', {
+      searchField: 'markdown',
+      filterFields: ['lifelogId'],
     }),
 
   metadata: defineTable({
@@ -48,16 +48,16 @@ export default defineSchema({
 
   operations: defineTable({
     operation: v.union(
-      v.literal("sync"),
-      v.literal("create"),
-      v.literal("read"),
-      v.literal("update"),
-      v.literal("delete"),
+      v.literal('sync'),
+      v.literal('create'),
+      v.literal('read'),
+      v.literal('update'),
+      v.literal('delete'),
     ),
     table: v.union(
-      v.literal("lifelogs"),
-      v.literal("metadata"),
-      v.literal("markdownEmbeddings"),
+      v.literal('lifelogs'),
+      v.literal('metadata'),
+      v.literal('markdownEmbeddings'),
     ),
     success: v.boolean(),
     data: v.object({
@@ -70,8 +70,8 @@ export default defineSchema({
     lifelogId: v.string(),
     markdown: v.string(),
     embedding: v.optional(v.array(v.number())),
-  }).vectorIndex("byEmbedding", {
-    vectorField: "embedding",
+  }).vectorIndex('byEmbedding', {
+    vectorField: 'embedding',
     dimensions: 1536,
   }),
 });

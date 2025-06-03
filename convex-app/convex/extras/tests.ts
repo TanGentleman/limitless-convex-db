@@ -1,9 +1,9 @@
-import { v } from "convex/values";
-import { internal } from "../_generated/api";
-import { internalMutation, internalQuery, query } from "../_generated/server";
-import { lifelogOperation, metadataOperation } from "./utils";
-import { Id } from "../_generated/dataModel";
-import { seedMetadata } from "./utils";
+import { v } from 'convex/values';
+import { internal } from '../_generated/api';
+import { internalMutation, internalQuery, query } from '../_generated/server';
+import { lifelogOperation, metadataOperation } from './utils';
+import { Id } from '../_generated/dataModel';
+import { seedMetadata } from './utils';
 
 const defaultLimit = 1;
 
@@ -35,10 +35,10 @@ export const undoSync = internalMutation({
   handler: async (ctx, args): Promise<UndoSyncResult> => {
     const isDryRun = args.dryRun ?? false;
     // 1. Get the latest metadata document
-    const metadataDocs = await ctx.db.query("metadata").order("desc").take(2);
+    const metadataDocs = await ctx.db.query('metadata').order('desc').take(2);
 
     if (metadataDocs.length === 0) {
-      throw new Error("No metadata document found to undo sync");
+      throw new Error('No metadata document found to undo sync');
     }
 
     const latestMetadata = metadataDocs[0];
@@ -57,16 +57,16 @@ export const undoSync = internalMutation({
     if (lifelogIdsToDelete.length === 0) {
       // No lifelogs to delete
       const operation = metadataOperation(
-        "sync",
-        "No lifelogs found to delete from last sync",
+        'sync',
+        'No lifelogs found to delete from last sync',
         true,
       );
       // Use direct db.insert instead of runMutation
-      await ctx.db.insert("operations", operation);
+      await ctx.db.insert('operations', operation);
 
       return {
         success: false,
-        message: "No lifelogs found to delete from last sync",
+        message: 'No lifelogs found to delete from last sync',
         dryRun: isDryRun,
       };
     }
@@ -110,13 +110,13 @@ export const undoSync = internalMutation({
 
     // 7. Log the operation
     const operation = lifelogOperation(
-      "delete",
+      'delete',
       `Undo sync: Deleted ${deletedLifelogCount} lifelogs, ${deletedEmbeddingCount} embeddings, and ${deletedMetadataCount} metadata document`,
       true,
     );
 
     // Use direct db.insert instead of runMutation
-    await ctx.db.insert("operations", operation);
+    await ctx.db.insert('operations', operation);
 
     // 8. Return the result
     return {
@@ -141,8 +141,8 @@ export const deleteMetadataDocs = internalMutation({
 
     // Get the most recent metadata docs
     const recentMetadata = await ctx.db
-      .query("metadata")
-      .order("desc")
+      .query('metadata')
+      .order('desc')
       .take(limit);
 
     // Collect metadata IDs for reporting
@@ -155,7 +155,7 @@ export const deleteMetadataDocs = internalMutation({
 
         // Log the deletion operation
         const operation = metadataOperation(
-          "delete",
+          'delete',
           `Deleted metadata entry ${id}`,
         );
         await ctx.runMutation(internal.operations.createDocs, {
@@ -183,12 +183,12 @@ export const deleteRecentLifelogs = internalMutation({
 
     // Get the most recent lifelogs
     const recentLifelogs = await ctx.db
-      .query("lifelogs")
-      .order("desc")
+      .query('lifelogs')
+      .order('desc')
       .take(limit);
 
     // Collect lifelog IDs for reporting
-    const lifelogIds: Id<"lifelogs">[] = [];
+    const lifelogIds: Id<'lifelogs'>[] = [];
 
     if (!isDryRun) {
       // Delete associated markdown embeddings and lifelogs
@@ -202,7 +202,7 @@ export const deleteRecentLifelogs = internalMutation({
 
         // Log the deletion operation
         const operation = lifelogOperation(
-          "delete",
+          'delete',
           `Deleted lifelog ${lifelog._id} (${lifelog.title})`,
         );
         await ctx.runMutation(internal.operations.createDocs, {
@@ -230,8 +230,8 @@ export const deleteRecentLifelogs = internalMutation({
 export const getMetadataDoc = internalMutation({
   handler: async (ctx) => {
     const existingMetadata = await ctx.db
-      .query("metadata")
-      .order("desc")
+      .query('metadata')
+      .order('desc')
       .take(1);
 
     if (existingMetadata.length > 0) {
@@ -239,10 +239,10 @@ export const getMetadataDoc = internalMutation({
     }
 
     // Create default metadata if none exists
-    const id = await ctx.db.insert("metadata", seedMetadata);
+    const id = await ctx.db.insert('metadata', seedMetadata);
     const result = await ctx.db.get(id);
     if (result === null) {
-      throw new Error("Failed to create default metadata");
+      throw new Error('Failed to create default metadata');
     }
     return result;
   },
@@ -252,20 +252,20 @@ export const getMetadataDoc = internalMutation({
 export const getLogsByOperation = internalQuery({
   args: {
     operation: v.union(
-      v.literal("sync"),
-      v.literal("create"),
-      v.literal("read"),
-      v.literal("update"),
-      v.literal("delete"),
+      v.literal('sync'),
+      v.literal('create'),
+      v.literal('read'),
+      v.literal('update'),
+      v.literal('delete'),
     ),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const limit = args.limit ?? defaultLimit;
     return await ctx.db
-      .query("operations")
-      .filter((q) => q.eq(q.field("operation"), args.operation))
-      .order("desc")
+      .query('operations')
+      .filter((q) => q.eq(q.field('operation'), args.operation))
+      .order('desc')
       .take(limit);
   },
 });
@@ -274,18 +274,18 @@ export const getLogsByOperation = internalQuery({
 export const getLogsByTable = internalQuery({
   args: {
     table: v.union(
-      v.literal("lifelogs"),
-      v.literal("metadata"),
-      v.literal("markdownEmbeddings"),
+      v.literal('lifelogs'),
+      v.literal('metadata'),
+      v.literal('markdownEmbeddings'),
     ),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const limit = args.limit ?? defaultLimit;
     return await ctx.db
-      .query("operations")
-      .filter((q) => q.eq(q.field("table"), args.table))
-      .order("desc")
+      .query('operations')
+      .filter((q) => q.eq(q.field('table'), args.table))
+      .order('desc')
       .take(limit);
   },
 });
@@ -298,9 +298,9 @@ export const getFailedOperations = internalQuery({
   handler: async (ctx, args) => {
     const limit = args.limit ?? defaultLimit;
     return await ctx.db
-      .query("operations")
-      .filter((q) => q.eq(q.field("success"), false))
-      .order("desc")
+      .query('operations')
+      .filter((q) => q.eq(q.field('success'), false))
+      .order('desc')
       .take(limit);
   },
 });
@@ -322,7 +322,7 @@ export const deleteAllLifelogs = internalMutation({
   },
   handler: async (ctx, args) => {
     // Fetch all documents with their embeddings
-    const allLifelogs = await ctx.db.query("lifelogs").collect();
+    const allLifelogs = await ctx.db.query('lifelogs').collect();
     const count = allLifelogs.length;
     let deletedEmbeddings = 0;
 
@@ -351,10 +351,10 @@ export const deleteAllLifelogs = internalMutation({
 
     // Log the operation with detailed information
     const operation = lifelogOperation(
-      "delete",
+      'delete',
       `Attempted deletion of all ${count} lifelogs and ${deletedEmbeddings} embeddings. Destructive: ${args.destructive}.`,
     );
-    await ctx.db.insert("operations", operation);
+    await ctx.db.insert('operations', operation);
 
     return {
       ids: allLifelogs.map((doc) => doc.lifelogId),

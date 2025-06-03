@@ -3,16 +3,16 @@
  * and utility functions for the 'lifelogs' table in the Convex database.
  * It includes handling for associated markdown embeddings.
  */
-import { internalQuery, internalMutation } from "./_generated/server";
-import { v } from "convex/values";
-import { Doc, Id } from "./_generated/dataModel";
-import { lifelogDoc } from "./types";
-import { internal } from "./_generated/api";
-import { lifelogOperation, markdownEmbeddingOperation } from "./extras/utils";
-import { paginationOptsValidator } from "convex/server";
+import { internalQuery, internalMutation } from './_generated/server';
+import { v } from 'convex/values';
+import { Doc, Id } from './_generated/dataModel';
+import { lifelogDoc } from './types';
+import { internal } from './_generated/api';
+import { lifelogOperation, markdownEmbeddingOperation } from './extras/utils';
+import { paginationOptsValidator } from 'convex/server';
 
 // Default values for querying
-const defaultDirection = "desc";
+const defaultDirection = 'desc';
 const defaultLimit = 1;
 
 // === CREATE ===
@@ -33,11 +33,11 @@ export const createDocs = internalMutation({
     const createdLifelogIds: string[] = [];
 
     for (const lifelog of args.lifelogs) {
-      let embeddingId: Id<"markdownEmbeddings"> | null = lifelog.embeddingId;
+      let embeddingId: Id<'markdownEmbeddings'> | null = lifelog.embeddingId;
 
       // Create a new embedding if markdown exists and no embeddingId was provided
       if (embeddingId === null && lifelog.markdown) {
-        embeddingId = await ctx.db.insert("markdownEmbeddings", {
+        embeddingId = await ctx.db.insert('markdownEmbeddings', {
           lifelogId: lifelog.lifelogId, // Link embedding to the lifelog
           markdown: lifelog.markdown,
           embedding: undefined, // Embedding vector will be generated later
@@ -46,7 +46,7 @@ export const createDocs = internalMutation({
       }
 
       // Insert the lifelog document
-      await ctx.db.insert("lifelogs", {
+      await ctx.db.insert('lifelogs', {
         ...lifelog, // Spread operator for conciseness
         embeddingId: embeddingId, // Use the determined embeddingId
       });
@@ -56,10 +56,10 @@ export const createDocs = internalMutation({
 
     // Log the creation operation
     const operation = lifelogOperation(
-      "create",
+      'create',
       `Created ${createdLifelogIds.length} new lifelogs`,
     );
-    await ctx.db.insert("operations", operation);
+    await ctx.db.insert('operations', operation);
 
     return createdLifelogIds;
   },
@@ -82,11 +82,11 @@ export const paginatedDocs = internalQuery({
     paginationOpts: paginationOptsValidator,
     startTime: v.optional(v.number()),
     endTime: v.optional(v.number()),
-    direction: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
+    direction: v.optional(v.union(v.literal('asc'), v.literal('desc'))),
   },
   handler: async (ctx, args) => {
     // Start building the query
-    const baseQuery = ctx.db.query("lifelogs");
+    const baseQuery = ctx.db.query('lifelogs');
     const startTime = args.startTime;
     const endTime = args.endTime;
     const direction = args.direction || defaultDirection;
@@ -95,18 +95,18 @@ export const paginatedDocs = internalQuery({
     // Apply time filters using the by_start_time index with appropriate range conditions
     const timeFilteredQuery =
       startTime !== undefined && endTime !== undefined
-        ? baseQuery.withIndex("by_start_time", (q) =>
-            q.gte("startTime", startTime).lte("startTime", endTime),
+        ? baseQuery.withIndex('by_start_time', (q) =>
+            q.gte('startTime', startTime).lte('startTime', endTime),
           )
         : startTime !== undefined
-          ? baseQuery.withIndex("by_start_time", (q) =>
-              q.gte("startTime", startTime),
-            )
-          : endTime !== undefined
-            ? baseQuery.withIndex("by_start_time", (q) =>
-                q.lte("startTime", endTime),
-              )
-            : baseQuery.withIndex("by_start_time");
+        ? baseQuery.withIndex('by_start_time', (q) =>
+            q.gte('startTime', startTime),
+          )
+        : endTime !== undefined
+        ? baseQuery.withIndex('by_start_time', (q) =>
+            q.lte('startTime', endTime),
+          )
+        : baseQuery.withIndex('by_start_time');
 
     // Apply sorting direction
     const sortedQuery = timeFilteredQuery.order(direction);
@@ -117,7 +117,7 @@ export const paginatedDocs = internalQuery({
     // Since lifelogs never overlap and we're already filtering by startTime ≤ endTime,
     // at most one entry at the boundary could exceed the endTime limit
     if (endTime !== undefined) {
-      if (direction === "asc") {
+      if (direction === 'asc') {
         // In ascending order, only the last entry might need filtering
         const lastIndex = paginatedResults.page.length - 1;
         if (
@@ -150,10 +150,10 @@ export const paginatedDocs = internalQuery({
  */
 export const getDocsById = internalQuery({
   args: {
-    ids: v.array(v.id("lifelogs")),
+    ids: v.array(v.id('lifelogs')),
   },
   handler: async (ctx, args) => {
-    const lifelogs: Doc<"lifelogs">[] = [];
+    const lifelogs: Doc<'lifelogs'>[] = [];
     for (const id of args.ids) {
       const lifelog = await ctx.db.get(id);
       if (lifelog) {
@@ -177,12 +177,12 @@ export const getDocsByLifelogId = internalQuery({
     lifelogIds: v.array(v.string()),
   },
   handler: async (ctx, args) => {
-    const lifelogs: Doc<"lifelogs">[] = [];
+    const lifelogs: Doc<'lifelogs'>[] = [];
     for (const lifelogId of args.lifelogIds) {
       // Use the 'by_lifelog_id' index for efficient lookup
       const lifelog = await ctx.db
-        .query("lifelogs")
-        .withIndex("by_lifelog_id", (q) => q.eq("lifelogId", lifelogId))
+        .query('lifelogs')
+        .withIndex('by_lifelog_id', (q) => q.eq('lifelogId', lifelogId))
         .first();
 
       if (lifelog) {
@@ -197,10 +197,10 @@ export const getDocsByLifelogId = internalQuery({
 
 export const getById = internalQuery({
   args: {
-    ids: v.array(v.id("lifelogs")),
+    ids: v.array(v.id('lifelogs')),
   },
   handler: async (ctx, args) => {
-    const lifelogs: Doc<"lifelogs">[] = [];
+    const lifelogs: Doc<'lifelogs'>[] = [];
     for (const id of args.ids) {
       const lifelog = await ctx.db.get(id);
       if (lifelog !== null) {
@@ -230,15 +230,15 @@ export const updateDocs = internalMutation({
   args: {
     updates: v.array(
       v.object({
-        id: v.id("lifelogs"), // Use the Convex document _id for updates
+        id: v.id('lifelogs'), // Use the Convex document _id for updates
         lifelog: lifelogDoc, // The new data for the lifelog
       }),
     ),
     abortOnError: v.optional(v.boolean()), // Default is false/undefined
   },
   handler: async (ctx, args) => {
-    const updatedDocIds: Id<"lifelogs">[] = [];
-    const embeddingsToDelete: Id<"markdownEmbeddings">[] = [];
+    const updatedDocIds: Id<'lifelogs'>[] = [];
+    const embeddingsToDelete: Id<'markdownEmbeddings'>[] = [];
 
     for (const update of args.updates) {
       const { id, lifelog: updatedLifelogData } = update;
@@ -256,7 +256,7 @@ export const updateDocs = internalMutation({
       }
 
       // --- 2. Embedding Management ---
-      let newEmbeddingId: Id<"markdownEmbeddings"> | null | undefined =
+      let newEmbeddingId: Id<'markdownEmbeddings'> | null | undefined =
         updatedLifelogData.embeddingId; // Start with provided ID
 
       // Check if markdown content has changed and is not null/undefined
@@ -267,7 +267,7 @@ export const updateDocs = internalMutation({
 
       if (markdownChanged) {
         // Create a new embedding record
-        newEmbeddingId = await ctx.db.insert("markdownEmbeddings", {
+        newEmbeddingId = await ctx.db.insert('markdownEmbeddings', {
           lifelogId: existingLifelog.lifelogId, // Use the stable lifelogId
           markdown: updatedLifelogData.markdown!, // Not null/undefined due to check above
           embedding: undefined, // To be generated later
@@ -305,19 +305,19 @@ export const updateDocs = internalMutation({
 
       // Log the embedding deletion operation
       const deleteEmbeddingOp = markdownEmbeddingOperation(
-        "delete",
+        'delete',
         `Deleted ${embeddingsToDelete.length} old markdown embeddings due to lifelog updates.`,
       );
-      await ctx.db.insert("operations", deleteEmbeddingOp);
+      await ctx.db.insert('operations', deleteEmbeddingOp);
     }
 
     // --- 5. Operation Logging ---
     if (updatedDocIds.length > 0) {
       const operation = lifelogOperation(
-        "update",
+        'update',
         `Updated ${updatedDocIds.length} lifelogs`,
       );
-      await ctx.db.insert("operations", operation);
+      await ctx.db.insert('operations', operation);
     }
 
     return updatedDocIds;
@@ -336,7 +336,7 @@ export const updateDocs = internalMutation({
  */
 export const deleteDocs = internalMutation({
   args: {
-    ids: v.array(v.id("lifelogs")),
+    ids: v.array(v.id('lifelogs')),
   },
   handler: async (ctx, args) => {
     for (const id of args.ids) {
@@ -347,10 +347,10 @@ export const deleteDocs = internalMutation({
     // Log the deletion operation
     if (args.ids.length > 0) {
       const operation = lifelogOperation(
-        "delete",
+        'delete',
         `Deleted ${args.ids.length} lifelogs`,
       );
-      await ctx.db.insert("operations", operation);
+      await ctx.db.insert('operations', operation);
     }
 
     // Return the list of IDs requested for deletion

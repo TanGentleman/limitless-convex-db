@@ -1,16 +1,16 @@
 // This file defines operations for handling markdown embeddings
-import { internalQuery, internalMutation } from "./_generated/server";
-import { v } from "convex/values";
-import { markdownEmbeddingDoc } from "./types";
-import { markdownEmbeddingOperation } from "./extras/utils";
-import { Doc, Id } from "./_generated/dataModel";
+import { internalQuery, internalMutation } from './_generated/server';
+import { v } from 'convex/values';
+import { markdownEmbeddingDoc } from './types';
+import { markdownEmbeddingOperation } from './extras/utils';
+import { Doc, Id } from './_generated/dataModel';
 // CREATE
 // Store a new markdown embedding
 export const createDocs = internalMutation({
   args: { docs: v.array(markdownEmbeddingDoc) },
   handler: async (ctx, args) => {
     for (const doc of args.docs) {
-      await ctx.db.insert("markdownEmbeddings", doc);
+      await ctx.db.insert('markdownEmbeddings', doc);
     }
   },
 });
@@ -18,7 +18,7 @@ export const createDocs = internalMutation({
 // READ
 // Get a specific embedding by ID
 export const getById = internalQuery({
-  args: { id: v.id("markdownEmbeddings") },
+  args: { id: v.id('markdownEmbeddings') },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.id);
   },
@@ -34,14 +34,14 @@ export const updateDocs = internalMutation({
   args: {
     updates: v.array(
       v.object({
-        id: v.id("markdownEmbeddings"),
+        id: v.id('markdownEmbeddings'),
         embedding: v.optional(v.union(v.array(v.number()), v.null())),
         markdown: v.optional(v.string()),
       }),
     ),
   },
   handler: async (ctx, args) => {
-    const updatedIds: Id<"markdownEmbeddings">[] = [];
+    const updatedIds: Id<'markdownEmbeddings'>[] = [];
 
     for (const update of args.updates) {
       const existingEmbedding = await ctx.db.get(update.id);
@@ -50,11 +50,10 @@ export const updateDocs = internalMutation({
         continue;
       }
       // only add provided fields to the update
-      const updateFields: Partial<Doc<"markdownEmbeddings">> = {};
+      const updateFields: Partial<Doc<'markdownEmbeddings'>> = {};
       if (update.embedding === null) {
         updateFields.embedding = undefined;
-      } 
-      else if (update.embedding !== undefined) {
+      } else if (update.embedding !== undefined) {
         updateFields.embedding = update.embedding;
       }
       if (update.markdown !== undefined) {
@@ -70,10 +69,10 @@ export const updateDocs = internalMutation({
     }
 
     const operation = markdownEmbeddingOperation(
-      "update",
+      'update',
       `Updated ${updatedIds.length} embeddings`,
     );
-    await ctx.db.insert("operations", operation);
+    await ctx.db.insert('operations', operation);
 
     return updatedIds;
   },
@@ -81,7 +80,7 @@ export const updateDocs = internalMutation({
 
 // DELETE
 export const deleteDocs = internalMutation({
-  args: { ids: v.array(v.id("markdownEmbeddings")) },
+  args: { ids: v.array(v.id('markdownEmbeddings')) },
   handler: async (ctx, args) => {
     for (const id of args.ids) {
       await ctx.db.delete(id);

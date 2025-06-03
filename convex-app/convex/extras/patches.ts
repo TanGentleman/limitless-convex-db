@@ -1,24 +1,24 @@
 // Patch operations
 
-import { internal } from "../_generated/api";
-import { internalMutation } from "../_generated/server";
-import { Doc } from "../_generated/dataModel";
-import { v } from "convex/values";
+import { internal } from '../_generated/api';
+import { internalMutation } from '../_generated/server';
+import { Doc } from '../_generated/dataModel';
+import { v } from 'convex/values';
 
 // For how many documents to patch
 const maxLimit = 500;
 
 // Process operations logs
 function processOperationDoc(
-  doc: Doc<"operations">,
-): Partial<Doc<"operations">> | null {
+  doc: Doc<'operations'>,
+): Partial<Doc<'operations'>> | null {
   if (doc.data) {
-    let message = "";
+    let message = '';
 
     // Only process logs with the specific fields
-    if ("lifelogsAdded" in doc.data && "lifelogsProcessed" in doc.data) {
+    if ('lifelogsAdded' in doc.data && 'lifelogsProcessed' in doc.data) {
       message = `Added ${doc.data.lifelogsAdded} of ${doc.data.lifelogsProcessed} processed lifelogs`;
-    } else if ("count" in doc.data && "reason" in doc.data) {
+    } else if ('count' in doc.data && 'reason' in doc.data) {
       message = `Skipped ${doc.data.count} lifelogs (reason: ${doc.data.reason})`;
     }
 
@@ -34,16 +34,16 @@ function processOperationDoc(
 
 // Process metadata docs
 function processMetadataDoc(
-  doc: Doc<"metadata">,
-): Partial<Doc<"metadata">> | null {
+  doc: Doc<'metadata'>,
+): Partial<Doc<'metadata'>> | null {
   // Add metadata-specific processing logic here
   return null;
 }
 
 // Process lifelog docs
 function processLifelogDoc(
-  doc: Doc<"lifelogs">,
-): Partial<Doc<"lifelogs">> | null {
+  doc: Doc<'lifelogs'>,
+): Partial<Doc<'lifelogs'>> | null {
   // Add lifelog-specific processing logic here
   return null;
 }

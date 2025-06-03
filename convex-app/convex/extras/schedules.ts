@@ -1,7 +1,7 @@
-import { internal } from "../_generated/api";
-import { internalQuery, query } from "../_generated/server";
-import { v } from "convex/values";
-import { action } from "../_generated/server";
+import { internal } from '../_generated/api';
+import { internalQuery, query } from '../_generated/server';
+import { v } from 'convex/values';
+import { action } from '../_generated/server';
 
 // Time window constants in milliseconds
 const TIME_WINDOW_BUFFER = 30000; // 15 seconds buffer
@@ -19,17 +19,24 @@ export const isSyncScheduled = internalQuery({
 
     // Query for any scheduled sync within our time window
     const scheduledFunctions = await ctx.db.system
-      .query("_scheduled_functions")
-      .collect()
-    
+      .query('_scheduled_functions')
+      .collect();
+
     // Filter the scheduled functions to only include the ones that are within the time window
     if (scheduledFunctions.length > 0) {
       for (const scheduledFunction of scheduledFunctions) {
-        if (scheduledFunction.name === "dashboard/sync.js:runSync") {
-          if (scheduledFunction.completedTime === undefined && scheduledFunction.scheduledTime >= windowStart && scheduledFunction.scheduledTime <= windowEnd) {
+        if (scheduledFunction.name === 'dashboard/sync.js:runSync') {
+          if (
+            scheduledFunction.completedTime === undefined &&
+            scheduledFunction.scheduledTime >= windowStart &&
+            scheduledFunction.scheduledTime <= windowEnd
+          ) {
             return true;
-          }
-          else if (scheduledFunction.completedTime !== undefined && scheduledFunction.completedTime >= windowStart && scheduledFunction.completedTime <= windowEnd) {
+          } else if (
+            scheduledFunction.completedTime !== undefined &&
+            scheduledFunction.completedTime >= windowStart &&
+            scheduledFunction.completedTime <= windowEnd
+          ) {
             return true;
           }
         }
@@ -45,14 +52,14 @@ export const listSchedules = query({
   },
   handler: async (ctx, args): Promise<any[]> => {
     const { limit = 100 } = args;
-    
+
     // Query for scheduled functions
     const scheduledFunctions = await ctx.db.system
-      .query("_scheduled_functions")
-      .order("desc")
+      .query('_scheduled_functions')
+      .order('desc')
       .take(limit);
-    
-    return scheduledFunctions.map(func => ({
+
+    return scheduledFunctions.map((func) => ({
       // id: func._id,
       name: func.name,
       // args: func.args,
@@ -62,7 +69,6 @@ export const listSchedules = query({
     }));
   },
 });
-
 
 export const scheduleSync = action({
   args: {
@@ -92,7 +98,7 @@ export const scheduleSync = action({
     );
 
     if (isScheduled) {
-      console.log("Sync already scheduled for this time window.");
+      console.log('Sync already scheduled for this time window.');
       return;
     }
 

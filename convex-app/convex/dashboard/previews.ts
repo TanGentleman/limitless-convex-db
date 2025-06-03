@@ -1,18 +1,18 @@
-import { v } from "convex/values";
-import { query, action } from "../_generated/server";
-import { internal } from "../_generated/api";
-import { Doc } from "../_generated/dataModel";
-import { PaginationResult } from "convex/server";
+import { v } from 'convex/values';
+import { query, action } from '../_generated/server';
+import { internal } from '../_generated/api';
+import { Doc } from '../_generated/dataModel';
+import { PaginationResult } from 'convex/server';
 
 // Alias for lifelog document type
-type Lifelog = Doc<"lifelogs">;
+type Lifelog = Doc<'lifelogs'>;
 
 export const getPreviewLifelog = query({
   handler: async (ctx) => {
     const lastLifelog = await ctx.db
-      .query("lifelogs")
-      .withIndex("by_start_time")
-      .order("desc")
+      .query('lifelogs')
+      .withIndex('by_start_time')
+      .order('desc')
       .first();
     if (lastLifelog === null) {
       return null;
@@ -46,7 +46,7 @@ export const getLastLifelog = action({
 
     const lifelog = result.page?.[0];
     if (!lifelog) {
-      throw new Error("No lifelogs found");
+      throw new Error('No lifelogs found');
     }
 
     // Optionally send a Slack notification
