@@ -1,5 +1,5 @@
-import { v } from "convex/values";
-import { Doc } from "./_generated/dataModel";
+import { v } from 'convex/values';
+import { Doc } from './_generated/dataModel';
 
 /**
  * Request parameters for retrieving lifelogs from the Limitless API.
@@ -28,7 +28,7 @@ export type LifelogRequest = {
    * - "asc": oldest first (used for initial sync)
    * - "desc": newest first (used for subsequent syncs)
    */
-  direction?: "asc" | "desc";
+  direction?: 'asc' | 'desc';
 
   /** Whether to include markdown content in results. Default: true */
   includeMarkdown?: boolean;
@@ -59,11 +59,11 @@ export type LifelogQueryParams = {
   /** Optional maximum endTime as unix timestamp (inclusive) */
   endTime?: number;
 
-  direction: "asc" | "desc";
+  direction: 'asc' | 'desc';
 };
 
 type ContentNode = {
-  type: "heading1" | "heading2" | "heading3" | "blockquote" | "paragraph";
+  type: 'heading1' | 'heading2' | 'heading3' | 'blockquote' | 'paragraph';
   content: string;
   startTime?: string; // ISO format
   endTime?: string; // ISO format
@@ -71,7 +71,7 @@ type ContentNode = {
   endOffsetMs?: number;
   children?: ContentNode[];
   speakerName?: string | null;
-  speakerIdentifier?: "user" | null;
+  speakerIdentifier?: 'user' | null;
 };
 
 // Conforms to the Limitless API spec in openapi.yaml
@@ -93,11 +93,11 @@ export const lifelogDoc = v.object({
   contents: v.array(
     v.object({
       type: v.union(
-        v.literal("heading1"),
-        v.literal("heading2"),
-        v.literal("heading3"),
-        v.literal("blockquote"),
-        v.literal("paragraph"),
+        v.literal('heading1'),
+        v.literal('heading2'),
+        v.literal('heading3'),
+        v.literal('blockquote'),
+        v.literal('paragraph'),
       ),
       content: v.string(),
       startTime: v.optional(v.number()),
@@ -106,24 +106,24 @@ export const lifelogDoc = v.object({
       endOffsetMs: v.optional(v.number()),
       children: v.optional(v.array(v.any())),
       speakerName: v.optional(v.union(v.string(), v.null())),
-      speakerIdentifier: v.optional(v.union(v.literal("user"), v.null())),
+      speakerIdentifier: v.optional(v.union(v.literal('user'), v.null())),
     }),
   ),
-  embeddingId: v.union(v.id("markdownEmbeddings"), v.null()),
+  embeddingId: v.union(v.id('markdownEmbeddings'), v.null()),
 });
 
 export const operationsDoc = v.object({
   operation: v.union(
-    v.literal("sync"),
-    v.literal("create"),
-    v.literal("read"),
-    v.literal("update"),
-    v.literal("delete"),
+    v.literal('sync'),
+    v.literal('create'),
+    v.literal('read'),
+    v.literal('update'),
+    v.literal('delete'),
   ),
   table: v.union(
-    v.literal("lifelogs"),
-    v.literal("metadata"),
-    v.literal("markdownEmbeddings"),
+    v.literal('lifelogs'),
+    v.literal('metadata'),
+    v.literal('markdownEmbeddings'),
   ),
   success: v.boolean(),
   data: v.object({
@@ -145,7 +145,7 @@ export const markdownEmbeddingDoc = v.object({
   lifelogId: v.string(),
 });
 
-export type ConvexLifelogs = Omit<Doc<"lifelogs">, "_id" | "_creationTime">;
+export type ConvexLifelogs = Omit<Doc<'lifelogs'>, '_id' | '_creationTime'>;
 
 /**
  * Converts lifelogs from API format to Convex database format.

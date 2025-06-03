@@ -1,96 +1,96 @@
-"use node";
-import { IncomingWebhook } from "@slack/webhook";
+'use node';
+import { IncomingWebhook } from '@slack/webhook';
 
-import { internalAction } from "../_generated/server";
-import { internal } from "../_generated/api";
-import { v } from "convex/values";
-import { formatDate, formatMarkdown } from "./utils";
-import { Doc } from "../_generated/dataModel";
+import { internalAction } from '../_generated/server';
+import { internal } from '../_generated/api';
+import { v } from 'convex/values';
+import { formatDate, formatMarkdown } from './utils';
+import { Doc } from '../_generated/dataModel';
 
 export const getWebhook = () => {
   const url = process.env.SLACK_WEBHOOK_URL;
   if (!url) {
-    throw new Error("SLACK_WEBHOOK_URL is not set");
+    throw new Error('SLACK_WEBHOOK_URL is not set');
   }
   return new IncomingWebhook(url);
 };
 
 // Define proper types for the content parameter
 type LifelogContent = {
-  type: "lifelog";
-  data: Doc<"lifelogs">;
+  type: 'lifelog';
+  data: Doc<'lifelogs'>;
 };
 
 type OperationContent = {
-  type: "operation";
-  data: Doc<"operations">;
+  type: 'operation';
+  data: Doc<'operations'>;
 };
 
 type SlackContent = LifelogContent | OperationContent;
 
 // Helper function to generate Slack blocks for different content types
 export const getSlackBlocks = (content: SlackContent) => {
-  if (content.type === "lifelog") {
+  if (content.type === 'lifelog') {
     const lifelog = content.data;
-    const markdown = lifelog.markdown || "No content available";
+    const markdown = lifelog.markdown || 'No content available';
     const timestamp = formatDate(new Date(lifelog.startTime));
-    const title = lifelog.title || "Untitled Lifelog";
+    const title = lifelog.title || 'Untitled Lifelog';
 
     // Process markdown to make it more Slack-friendly
     const processedMarkdown = formatMarkdown(markdown, true);
     const maxContentLength = 2000;
     const truncatedMarkdown =
       processedMarkdown.length > maxContentLength
-        ? processedMarkdown.substring(0, maxContentLength) + "..."
+        ? processedMarkdown.substring(0, maxContentLength) + '...'
         : processedMarkdown;
 
     return [
       {
-        type: "header",
+        type: 'header',
         text: {
-          type: "plain_text",
-          text: "📝 Latest Lifelog Entry",
+          type: 'plain_text',
+          text: '📝 Latest Lifelog Entry',
           emoji: true,
         },
       },
       {
-        type: "section",
+        type: 'section',
         fields: [
           {
-            type: "mrkdwn",
+            type: 'mrkdwn',
             text: `*Title:*\n${title}`,
           },
           {
-            type: "mrkdwn",
+            type: 'mrkdwn',
             text: `*Created:*\n${timestamp}`,
           },
         ],
       },
       {
-        type: "divider",
+        type: 'divider',
       },
       {
-        type: "section",
+        type: 'section',
         text: {
-          type: "mrkdwn",
+          type: 'mrkdwn',
           text: truncatedMarkdown,
         },
       },
     ];
-  } else if (content.type === "operation") {
+  } else if (content.type === 'operation') {
     const operationLog = content.data;
     const timestamp = formatDate(new Date(operationLog._creationTime));
-    const status = operationLog.success ? "✅ Success" : "❌ Failure";
+    const status = operationLog.success ? '✅ Success' : '❌ Failure';
     const details =
       operationLog.data.error ||
       operationLog.data.message ||
-      "No details available";
+      'No details available';
 
     return [
       {
-        type: "section",
+        type: 'section',
         text: {
-          type: "mrkdwn",
+          type: 'mrkdwn',
           text:
             `*📊 Last Operation Report*\n` +
             `*Operation:* ${operationLog.operation}\n` +
@@ -99,9 +99,9 @@ export const getSlackBlocks = (content: SlackContent) => {
         },
       },
       {
-        type: "section",
+        type: 'section',
         text: {
-          type: "mrkdwn",
+          type: 'mrkdwn',
           text: `*Details:*\n${details}`,
         },
       },
@@ -116,19 +116,19 @@ export const sendSlackNotification = internalAction({
     blocks: v.optional(v.array(v.any())),
     operation: v.optional(
       v.union(
-        v.literal("sync"),
-        v.literal("create"),
-        v.literal("read"),
-        v.literal("update"),
-        v.literal("delete"),
+        v.literal('sync'),
+        v.literal('create'),
+        v.literal('read'),
+        v.literal('update'),
+        v.literal('delete'),
       ),
     ),
-    lifelogId: v.optional(v.id("lifelogs")),
+    lifelogId: v.optional(v.id('lifelogs')),
   },
   handler: async (ctx, args) => {
     const hasSlack = process.env.SLACK_WEBHOOK_URL !== undefined;
     if (!hasSlack) {
-      console.error("SLACK_WEBHOOK_URL is not set");
+      console.error('SLACK_WEBHOOK_URL is not set');
       return;
     }
 
@@ -147,7 +147,7 @@ export const sendSlackNotification = internalAction({
       });
       if (lifelog.length > 0) {
         const blocks = getSlackBlocks({
-          type: "lifelog",
+          type: 'lifelog',
           data: lifelog[0],
         });
         await webhook.send({ blocks });
@@ -156,7 +156,7 @@ export const sendSlackNotification = internalAction({
     }
 
     // Otherwise, generate blocks from operation logs
-    const operation = args.operation || "sync";
+    const operation = args.operation || 'sync';
     const [operationLog] = await ctx.runQuery(
       internal.extras.tests.getLogsByOperation,
       { operation, limit: 1 },
@@ -167,7 +167,7 @@ export const sendSlackNotification = internalAction({
     }
 
     const blocks = getSlackBlocks({
-      type: "operation",
+      type: 'operation',
       data: operationLog,
     });
     await webhook.send({ blocks });

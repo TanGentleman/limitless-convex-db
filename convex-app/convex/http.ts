@@ -1,11 +1,10 @@
-import { httpRouter } from "convex/server";
-import { httpAction } from "./_generated/server";
-import { internal } from "./_generated/api";
-import { formatDate } from "./extras/utils";
-import { LifelogQueryParams, LifelogRequest } from "./types";
-import { convertToLimitlessFormat } from "./types";
-import moment from "moment-timezone";
-
+import { httpRouter } from 'convex/server';
+import { httpAction } from './_generated/server';
+import { internal } from './_generated/api';
+import { formatDate } from './extras/utils';
+import { LifelogQueryParams, LifelogRequest } from './types';
+import { convertToLimitlessFormat } from './types';
+import moment from 'moment-timezone';
 
 const http = httpRouter();
 
@@ -18,7 +17,7 @@ function parseLifelogHttpParams(params: URLSearchParams): {
   requestOptions: LifelogRequest;
   queryParams: LifelogQueryParams;
 } {
-  const defaultDirection = "asc";
+  const defaultDirection = 'asc';
   const defaultLimit = 10;
 
   /**
@@ -27,36 +26,43 @@ function parseLifelogHttpParams(params: URLSearchParams): {
    * @param timezone Timezone string (e.g. 'America/Los_Angeles')
    * @returns Timestamp in milliseconds since epoch, or undefined if invalid
    */
-  const dateParamToTimestamp = (dateString: string | undefined, timezone: string | undefined) => {
+  const dateParamToTimestamp = (
+    dateString: string | undefined,
+    timezone: string | undefined,
+  ) => {
     if (dateString === undefined) return undefined;
     if (dateString.length !== 10) {
-      throw new Error("Invalid date format. Expected format: MM-DD-YYYY");
+      throw new Error('Invalid date format. Expected format: MM-DD-YYYY');
     }
-    
+
     // Parse the date string (MM-DD-YYYY)
     const [month, day, year] = dateString.split('-');
-    
+
     // Use moment-timezone with explicit format to avoid deprecation warning
-    const date = moment.tz(`${year}-${month}-${day}`, "YYYY-MM-DD", timezone || 'UTC');
-    
+    const date = moment.tz(
+      `${year}-${month}-${day}`,
+      'YYYY-MM-DD',
+      timezone || 'UTC',
+    );
+
     // Return the timestamp or undefined if invalid
     return date.isValid() ? date.valueOf() : undefined;
   };
 
   // Build LifelogRequest from query parameters
   const requestOptions: LifelogRequest = {
-    timezone: params.get("timezone") ?? undefined,
-    date: params.get("date") ?? undefined,
-    start: params.get("start") ?? undefined,
-    end: params.get("end") ?? undefined,
-    cursor: params.get("cursor") ?? undefined,
-    direction: (params.get("direction") ?? defaultDirection) as "asc" | "desc",
+    timezone: params.get('timezone') ?? undefined,
+    date: params.get('date') ?? undefined,
+    start: params.get('start') ?? undefined,
+    end: params.get('end') ?? undefined,
+    cursor: params.get('cursor') ?? undefined,
+    direction: (params.get('direction') ?? defaultDirection) as 'asc' | 'desc',
     includeMarkdown:
-      params.get("includeMarkdown") === "false" ? false : undefined,
+      params.get('includeMarkdown') === 'false' ? false : undefined,
     includeHeadings:
-      params.get("includeHeadings") === "false" ? false : undefined,
-    limit: params.has("limit")
-      ? parseInt(params.get("limit") as string)
+      params.get('includeHeadings') === 'false' ? false : undefined,
+    limit: params.has('limit')
+      ? parseInt(params.get('limit') as string)
       : undefined,
   };
 
@@ -64,7 +70,7 @@ function parseLifelogHttpParams(params: URLSearchParams): {
   const dateTimestamp = requestOptions.date
     ? dateParamToTimestamp(requestOptions.date, requestOptions.timezone)
     : undefined;
-  
+
   const startTime = requestOptions.start
     ? new Date(requestOptions.start).getTime()
     : dateTimestamp;
@@ -73,11 +79,11 @@ function parseLifelogHttpParams(params: URLSearchParams): {
   const endTime = requestOptions.end
     ? new Date(requestOptions.end).getTime()
     : dateTimestamp && startTime !== undefined
-      ? startTime + 86400000  // Add exactly 24 hours (86400000 ms)
-      : undefined;
-  
+    ? startTime + 86400000 // Add exactly 24 hours (86400000 ms)
+    : undefined;
+
   // log the start and end times in the timezone
-  // console.log("startTime", startTime, "endTime", endTime, "timezone", requestOptions.timezone, 
+  // console.log("startTime", startTime, "endTime", endTime, "timezone", requestOptions.timezone,
   //   startTime ? new Date(startTime).toLocaleString('en-US', { timeZone: requestOptions.timezone }) : undefined,
   //   endTime ? new Date(endTime).toLocaleString('en-US', { timeZone: requestOptions.timezone }) : undefined);
   // Build database query parameters
@@ -104,8 +110,8 @@ function parseLifelogHttpParams(params: URLSearchParams): {
  * Response: JSON with sync status, timestamp, and whether new entries were added
  */
 http.route({
-  path: "/sync",
-  method: "GET",
+  path: '/sync',
+  method: 'GET',
   handler: httpAction(async (ctx) => {
     try {
       const isNewLifelogs = await ctx.runAction(
@@ -124,21 +130,21 @@ http.route({
         {
           status: 200,
           headers: {
-            "Content-Type": "application/json",
+            'Content-Type': 'application/json',
           },
         },
       );
     } catch (error) {
-      console.error("Error in sync HTTP action:", "See Dev logs.");
+      console.error('Error in sync HTTP action:', 'See Dev logs.');
       return new Response(
         JSON.stringify({
           success: false,
-          error: "An unexpected error occurred during sync",
+          error: 'An unexpected error occurred during sync',
         }),
         {
           status: 500,
           headers: {
-            "Content-Type": "application/json",
+            'Content-Type': 'application/json',
           },
         },
       );
@@ -164,28 +170,28 @@ http.route({
  * Response: JSON with lifelogs data and pagination metadata
  */
 http.route({
-  path: "/v1/lifelogs",
-  method: "GET",
+  path: '/v1/lifelogs',
+  method: 'GET',
   handler: httpAction(async (ctx, request) => {
     try {
       // Pre-req, user needs LIMITLESS_API_KEY set in env vars
       if (!process.env.LIMITLESS_API_KEY) {
-        throw new Error("LIMITLESS_API_KEY is not set in env vars");
+        throw new Error('LIMITLESS_API_KEY is not set in env vars');
       }
 
       // Verify API key from X-API-Key header or Authorization header
-      const apiKey = request.headers.get("X-API-Key");
+      const apiKey = request.headers.get('X-API-Key');
 
       if (apiKey === null) {
         return new Response(
           JSON.stringify({
-            error: "Unauthorized: Missing API key",
+            error: 'Unauthorized: Missing API key',
           }),
           {
             status: 401,
             headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
             },
           },
         );
@@ -193,13 +199,13 @@ http.route({
       if (apiKey !== process.env.LIMITLESS_API_KEY) {
         return new Response(
           JSON.stringify({
-            error: "Unauthorized: Invalid API key",
+            error: 'Unauthorized: Invalid API key',
           }),
           {
             status: 401,
             headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
             },
           },
         );
@@ -231,9 +237,9 @@ http.route({
         limitlessLifelogs.forEach((lifelog) => {
           lifelog.contents = lifelog.contents.filter(
             (content) =>
-              content.type !== "heading1" &&
-              content.type !== "heading2" &&
-              content.type !== "heading3",
+              content.type !== 'heading1' &&
+              content.type !== 'heading2' &&
+              content.type !== 'heading3',
           );
         });
       }
@@ -256,24 +262,24 @@ http.route({
         {
           status: 200,
           headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
           },
         },
       );
     } catch (error) {
-      console.error("Error in lifelogs HTTP action:", "See Dev logs.");
+      console.error('Error in lifelogs HTTP action:', 'See Dev logs.');
       return new Response(
         JSON.stringify({
-          error: "An unexpected error occurred during lifelogs retrieval",
+          error: 'An unexpected error occurred during lifelogs retrieval',
         }),
         {
           status: 500,
           headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
           },
         },
       );
@@ -283,16 +289,16 @@ http.route({
 
 // Add OPTIONS handler for CORS support for lifelogs
 http.route({
-  path: "/v1/lifelogs",
-  method: "OPTIONS",
+  path: '/v1/lifelogs',
+  method: 'OPTIONS',
   handler: httpAction(async () => {
     return new Response(null, {
       status: 204,
       headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        "Access-Control-Max-Age": "86400",
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '86400',
       },
     });
   }),
@@ -300,16 +306,16 @@ http.route({
 
 // Add OPTIONS handler for CORS support
 http.route({
-  path: "/sync",
-  method: "OPTIONS",
+  path: '/sync',
+  method: 'OPTIONS',
   handler: httpAction(async () => {
     return new Response(null, {
       status: 204,
       headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        "Access-Control-Max-Age": "86400",
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '86400',
       },
     });
   }),

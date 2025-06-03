@@ -5,7 +5,7 @@
  * @returns string - Formatted date string
  */
 export const formatDateToYYYYMMDD = (date: Date): string => {
-  return date.toISOString().split("T")[0];
+  return date.toISOString().split('T')[0];
 };
 
 /**
@@ -45,16 +45,16 @@ export const formatMarkdown = (
 ): string => {
   // Remove title if requested
   const content = removeTitle
-    ? markdown.split("\n").slice(1).join("\n")
+    ? markdown.split('\n').slice(1).join('\n')
     : markdown;
 
   // Apply markdown transformations
   return (
     content
       // Convert headers to bold text
-      .replace(/^#{1,3} (.*$)/gm, "*$1*")
+      .replace(/^#{1,3} (.*$)/gm, '*$1*')
       // Convert bullet points to Slack-friendly format
-      .replace(/\n- /g, "\n• ")
+      .replace(/\n- /g, '\n• ')
   );
 };
 
@@ -66,21 +66,21 @@ export const formatDate = (
   timezone?: string,
 ): string => {
   const d = new Date(date);
-  return d.toLocaleString("en-US", {
-    timeZone: timezone || process.env.TIMEZONE || "UTC",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
+  return d.toLocaleString('en-US', {
+    timeZone: timezone || process.env.TIMEZONE || 'UTC',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
 };
 
 // Generic operation creation helper
 const createOperation = (
-  operation: "sync" | "create" | "read" | "update" | "delete",
-  table: "lifelogs" | "metadata" | "markdownEmbeddings",
+  operation: 'sync' | 'create' | 'read' | 'update' | 'delete',
+  table: 'lifelogs' | 'metadata' | 'markdownEmbeddings',
   success: boolean,
   data: { message?: string; error?: string },
 ) => ({
@@ -93,27 +93,27 @@ const createOperation = (
 
 // Simplified metadata operation creator
 export const metadataOperation = (
-  operation: "create" | "update" | "delete" | "sync",
+  operation: 'create' | 'update' | 'delete' | 'sync',
   message: string,
   success: boolean = true,
 ) => {
-  return createOperation(operation, "metadata", success, { message });
+  return createOperation(operation, 'metadata', success, { message });
 };
 
 export const lifelogOperation = (
-  operation: "create" | "read" | "update" | "delete",
+  operation: 'create' | 'read' | 'update' | 'delete',
   message: string,
   success: boolean = true,
 ) => {
-  return createOperation(operation, "lifelogs", success, { message });
+  return createOperation(operation, 'lifelogs', success, { message });
 };
 
 export const markdownEmbeddingOperation = (
-  operation: "create" | "read" | "update" | "delete",
+  operation: 'create' | 'read' | 'update' | 'delete',
   message: string,
   success: boolean = true,
 ) => {
-  return createOperation(operation, "markdownEmbeddings", success, {
+  return createOperation(operation, 'markdownEmbeddings', success, {
     message,
   });
 };
