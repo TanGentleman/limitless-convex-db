@@ -357,3 +357,86 @@ export const deleteDocs = internalMutation({
     return args.ids;
   },
 });
+
+/**
+ * Performs a full text search on the `markdown` field of lifelogs, with optional additional filtering.
+ * Uses the "search_markdown" search index (must be defined in schema).
+ *
+ * Results are returned in relevance order (best matches first).
+ * Supports pagination via Convex's pagination options.
+ * You can filter by creation time or any other field using the `filter` parameter.
+ *
+ * @param query - The search string (can be multiple words).
+ * @param paginationOpts - Pagination options (cursor, numItems, etc).
+ * @param minCreationTime - (Optional) Only include lifelogs created after this timestamp (ms).
+ * @param maxCreationTime - (Optional) Only include lifelogs created before this timestamp (ms).
+ * @returns Paginated lifelog documents matching the search query and filters.
+ *
+ * Example usage:
+ *   const results = await ctx.runQuery(internal.lifelogs.searchMarkdown, {
+ *     query: "meeting notes",
+ *     paginationOpts: { numItems: 10 },
+ *     minCreationTime: Date.now() - 10 * 60 * 1000, // last 10 minutes
+ *   });
+ */
+export const searchMarkdown = internalQuery({
+  args: {
+    query: v.string(),
+    paginationOpts: paginationOptsValidator,
+    minStartTime: v.optional(v.number()),
+    maxStartTime: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    // Build the search index query
+    const queryString = args.query.trim();
+    const minStartTime = args.minStartTime;
+    const maxStartTime = args.maxStartTime;
+    if (queryString.length === 0) {
+      console.warn("Empty search query provided, returning empty results.");
+      // Return empty pagination result
+      return {
+        page: [],
+        isDone: true,
+        continueCursor: null,
+      };
+    }
+    let query = ctx.db
+      .query("lifelogs")
+      .withSearchIndex("search_markdown", q =>
+        q.search("markdown", args.query)
+      );
+    // Add additional filters using .filter
+    if (minStartTime !== undefined) {
+      query = query.filter(q =>
+        q.gt(q.field("startTime"), minStartTime!)
+      );
+    }
+    if (maxStartTime !== undefined) {
+      query = query.filter(q =>
+        q.lt(q.field("startTime"), maxStartTime!)
+      );
+    }
+
+    // Paginate and return results
+    const results = await query.paginate(args.paginationOpts);
+
+    // If no results, return empty pagination result
+    if (results.page.length === 0) {
+      console.log("Empty search results for query:", args.query);
+      return {
+        page: [],
+        isDone: true,
+        continueCursor: null,
+      };
+    }
+
+    // Parse and return the pagination result
+    return {
+      page: results.page.map(page => page.markdown ?? ""),
+      isDone: results.isDone,
+      continueCursor: results.continueCursor,
+      splitCursor: results.splitCursor,
+      pageStatus: results.pageStatus,
+    };
+  },
+});

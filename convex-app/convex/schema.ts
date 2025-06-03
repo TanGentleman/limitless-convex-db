@@ -31,12 +31,11 @@ export default defineSchema({
   })
     .index('by_start_time', ['startTime'])
     .index('by_lifelog_id', ['lifelogId'])
-    .searchIndex('search_title_content', {
+    .searchIndex('search_title', {
       searchField: 'title',
     })
-    .searchIndex('search_markdown_content', {
+    .searchIndex('search_markdown', {
       searchField: 'markdown',
-      filterFields: ['lifelogId'],
     }),
 
   metadata: defineTable({
