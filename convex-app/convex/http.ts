@@ -4,6 +4,7 @@ import { internal } from './_generated/api';
 import { formatDate } from './extras/utils';
 import { LifelogQueryParams, LifelogRequest } from './types';
 import { convertToLimitlessFormat } from './types';
+import { dateParamToTimestamp } from './dateUtils';
 
 const http = httpRouter();
 
