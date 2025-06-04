@@ -329,14 +329,26 @@ http.route({
           },
         );
       }
-      const { requestOptions, queryParams } = parseLifelogHttpParams(
-        url.searchParams,
-      );
+      
+      const paginationOpts = {
+        numItems: url.searchParams.has('limit')
+          ? parseInt(url.searchParams.get('limit') as string)
+          : 10, // Default limit
+        cursor: url.searchParams.get('cursor') || null,
+      };
+      const startTime = url.searchParams.get('startTime') ?? undefined
+      const endTime = url.searchParams.get('endTime') ?? undefined;
 
+      const args = {
+        query,
+        startTime: startTime ? parseInt(startTime) : undefined,
+        endTime: endTime ? parseInt(endTime) : undefined,
+        paginationOpts,
+      };
       // Full text search using internal query
       const searchResults = await ctx.runQuery(
         internal.lifelogs.searchMarkdown,
-        { ...queryParams, query },
+        args,
       );
 
       // Format the response according to OpenAPI schema
