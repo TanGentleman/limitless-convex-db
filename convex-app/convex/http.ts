@@ -4,7 +4,6 @@ import { internal } from './_generated/api';
 import { formatDate } from './extras/utils';
 import { LifelogQueryParams, LifelogRequest } from './types';
 import { convertToLimitlessFormat } from './types';
-import moment from 'moment-timezone';
 
 const http = httpRouter();
 
@@ -18,36 +17,7 @@ function parseLifelogHttpParams(params: URLSearchParams): {
   queryParams: LifelogQueryParams;
 } {
   const defaultDirection = 'asc';
-  const defaultLimit = 10;
-
-  /**
-   * Converts a date string in MM-DD-YYYY format to a timestamp
-   * @param dateString Date string in MM-DD-YYYY format
-   * @param timezone Timezone string (e.g. 'America/Los_Angeles')
-   * @returns Timestamp in milliseconds since epoch, or undefined if invalid
-   */
-  const dateParamToTimestamp = (
-    dateString: string | undefined,
-    timezone: string | undefined,
-  ) => {
-    if (dateString === undefined) return undefined;
-    if (dateString.length !== 10) {
-      throw new Error('Invalid date format. Expected format: MM-DD-YYYY');
-    }
-
-    // Parse the date string (MM-DD-YYYY)
-    const [month, day, year] = dateString.split('-');
-
-    // Use moment-timezone with explicit format to avoid deprecation warning
-    const date = moment.tz(
-      `${year}-${month}-${day}`,
-      'YYYY-MM-DD',
-      timezone || 'UTC',
-    );
-
-    // Return the timestamp or undefined if invalid
-    return date.isValid() ? date.valueOf() : undefined;
-  };
+  const defaultLimit = 10;  
 
   // Build LifelogRequest from query parameters
   const requestOptions: LifelogRequest = {
@@ -182,7 +152,7 @@ http.route({
       // Verify API key from X-API-Key header or Authorization header
       const apiKey = request.headers.get('X-API-Key');
 
-      if (apiKey === null) {
+      if (!apiKey) {
         return new Response(
           JSON.stringify({
             error: 'Unauthorized: Missing API key',
@@ -287,7 +257,154 @@ http.route({
   }),
 });
 
-// Add OPTIONS handler for CORS support for lifelogs
+/**
+ * Endpoint: /v1/search
+ * Method: GET
+ * Description: Retrieves paginated lifelogs using full text search.
+ * Authentication: Requires valid API key in Authorization header
+ * Query Parameters:
+ *   - query: Search query string
+ *   - timezone: User's timezone for date calculations
+ *   - date: Specific date to filter by
+ *   - start: Start timestamp for range filtering
+ *   - end: End timestamp for range filtering
+ *   - cursor: Pagination cursor for fetching next batch
+ *   - direction: Sort direction ('asc' or 'desc') (default: 'asc')
+ *   - includeMarkdown: Whether to include markdown content (default: true)
+ *   - includeHeadings: Whether to include headings (default: true)
+ *   - limit: Maximum number of records to return (default: 10)
+ * Response: JSON with lifelogs data and pagination metadata
+ */
+http.route({
+  path: '/v1/search',
+  method: 'GET',
+  handler: httpAction(async (ctx, request) => {
+    try {
+      // Pre-req, user needs LIMITLESS_API_KEY set in env vars
+      if (!process.env.LIMITLESS_API_KEY) {
+        throw new Error('LIMITLESS_API_KEY is not set in env vars');
+      }
+
+      // Verify API key from X-API-Key header or Authorization header
+      const apiKey = request.headers.get('X-API-Key');
+
+      if (apiKey === null) {
+        return new Response(
+          JSON.stringify({
+            error: 'Unauthorized: Missing API key',
+          }),
+          {
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          },
+        );
+      }
+      if (apiKey !== process.env.LIMITLESS_API_KEY) {
+        return new Response(
+          JSON.stringify({
+            error: 'Unauthorized: Invalid API key',
+          }),
+          {
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          },
+        );
+      }
+
+      // Parse query parameters from URL
+      const url = new URL(request.url);
+      const query = url.searchParams.get('query');
+      if (!query) {
+        return new Response(
+          JSON.stringify({
+        error: 'Missing required query parameter: query',
+          }),
+          {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+          },
+        );
+      }
+      // Remove the 'query' parameter from the URL searchParams
+      const { requestOptions, queryParams } = parseLifelogHttpParams(
+        url.searchParams,
+      );
+
+      // Full text search using internal query
+      const searchResults = await ctx.runQuery(
+        internal.lifelogs.searchMarkdown,
+        { ...queryParams, query },
+      );
+
+      // Format the response according to OpenAPI schema
+      return new Response(
+        JSON.stringify({
+          data: {
+            results: searchResults.page,
+          },
+          meta: {
+            lifelogs: {
+              nextCursor: searchResults.continueCursor || null,
+              count: searchResults.page.length,
+              // TODO: Add isDone to the response
+              // isDone: convexLifelogs.isDone || false,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          },
+        },
+      );
+    } catch (error) {
+      console.error('Error in lifelogs HTTP action:', 'See Dev logs.');
+      return new Response(
+        JSON.stringify({
+          error: 'An unexpected error occurred during lifelogs retrieval',
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        },
+      );
+    }
+  }),
+});
+
+// Add OPTIONS handlers for CORS support
+http.route({
+  path: '/sync',
+  method: 'OPTIONS',
+  handler: httpAction(async () => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '86400',
+      },
+    });
+  }),
+});
+
 http.route({
   path: '/v1/lifelogs',
   method: 'OPTIONS',
@@ -304,9 +421,8 @@ http.route({
   }),
 });
 
-// Add OPTIONS handler for CORS support
 http.route({
-  path: '/sync',
+  path: '/search',
   method: 'OPTIONS',
   handler: httpAction(async () => {
     return new Response(null, {

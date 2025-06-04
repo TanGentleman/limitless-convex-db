@@ -360,11 +360,9 @@ export const deleteDocs = internalMutation({
 
 /**
  * Performs a full text search on the `markdown` field of lifelogs, with optional additional filtering.
- * Uses the "search_markdown" search index (must be defined in schema).
  *
  * Results are returned in relevance order (best matches first).
  * Supports pagination via Convex's pagination options.
- * You can filter by creation time or any other field using the `filter` parameter.
  *
  * @param query - The search string (can be multiple words).
  * @param paginationOpts - Pagination options (cursor, numItems, etc).
@@ -383,20 +381,20 @@ export const searchMarkdown = internalQuery({
   args: {
     query: v.string(),
     paginationOpts: paginationOptsValidator,
-    minStartTime: v.optional(v.number()),
-    maxStartTime: v.optional(v.number()),
+    startTime: v.optional(v.number()),
+    endTime: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // Build the search index query
     const queryString = args.query.trim();
-    const minStartTime = args.minStartTime;
-    const maxStartTime = args.maxStartTime;
+    const start = args.startTime;
+    const end = args.endTime;
     if (queryString.length === 0) {
       console.warn("Empty search query provided, returning empty results.");
       // Return empty pagination result
       return {
         page: [],
-        isDone: true,
+        isDone: false,
         continueCursor: null,
       };
     }
@@ -407,18 +405,18 @@ export const searchMarkdown = internalQuery({
 
     // Apply time range filters if provided
     const timeFilteredQuery =
-      minStartTime !== undefined && maxStartTime !== undefined
+      start !== undefined && end !== undefined
       ? searchQuery.filter(q =>
-          q.gte(q.field("startTime"), minStartTime) &&
-          q.lte(q.field("startTime"), maxStartTime)
+          q.gte(q.field("startTime"), start) &&
+          q.lte(q.field("endTime"), end)
         )
-      : minStartTime !== undefined
+      : start !== undefined
       ? searchQuery.filter(q =>
-          q.gte(q.field("startTime"), minStartTime)
+          q.gte(q.field("startTime"), start)
         )
-      : maxStartTime !== undefined
+      : end !== undefined
       ? searchQuery.filter(q =>
-          q.lte(q.field("startTime"), maxStartTime)
+          q.lte(q.field("endTime"), end)
         )
       : searchQuery;
 
