@@ -400,25 +400,30 @@ export const searchMarkdown = internalQuery({
         continueCursor: null,
       };
     }
-    let query = ctx.db
-      .query("lifelogs")
-      .withSearchIndex("search_markdown", q =>
-        q.search("markdown", args.query)
-      );
-    // Add additional filters using .filter
-    if (minStartTime !== undefined) {
-      query = query.filter(q =>
-        q.gt(q.field("startTime"), minStartTime!)
-      );
-    }
-    if (maxStartTime !== undefined) {
-      query = query.filter(q =>
-        q.lt(q.field("startTime"), maxStartTime!)
-      );
-    }
+    // Use the search index for full text search
+    const searchQuery = ctx.db.query("lifelogs").withSearchIndex("search_markdown", q =>
+      q.search("markdown", queryString)
+    );
+
+    // Apply time range filters if provided
+    const timeFilteredQuery =
+      minStartTime !== undefined && maxStartTime !== undefined
+      ? searchQuery.filter(q =>
+          q.gte(q.field("startTime"), minStartTime) &&
+          q.lte(q.field("startTime"), maxStartTime)
+        )
+      : minStartTime !== undefined
+      ? searchQuery.filter(q =>
+          q.gte(q.field("startTime"), minStartTime)
+        )
+      : maxStartTime !== undefined
+      ? searchQuery.filter(q =>
+          q.lte(q.field("startTime"), maxStartTime)
+        )
+      : searchQuery;
 
     // Paginate and return results
-    const results = await query.paginate(args.paginationOpts);
+    const results = await timeFilteredQuery.paginate(args.paginationOpts);
 
     // If no results, return empty pagination result
     if (results.page.length === 0) {
