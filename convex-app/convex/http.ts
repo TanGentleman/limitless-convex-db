@@ -264,14 +264,9 @@ http.route({
  * Authentication: Requires valid API key in Authorization header
  * Query Parameters:
  *   - query: Search query string
- *   - timezone: User's timezone for date calculations
- *   - date: Specific date to filter by
  *   - start: Start timestamp for range filtering
  *   - end: End timestamp for range filtering
  *   - cursor: Pagination cursor for fetching next batch
- *   - direction: Sort direction ('asc' or 'desc') (default: 'asc')
- *   - includeMarkdown: Whether to include markdown content (default: true)
- *   - includeHeadings: Whether to include headings (default: true)
  *   - limit: Maximum number of records to return (default: 10)
  * Response: JSON with lifelogs data and pagination metadata
  */
@@ -334,7 +329,6 @@ http.route({
           },
         );
       }
-      // Remove the 'query' parameter from the URL searchParams
       const { requestOptions, queryParams } = parseLifelogHttpParams(
         url.searchParams,
       );
