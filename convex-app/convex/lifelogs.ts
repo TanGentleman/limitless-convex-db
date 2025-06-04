@@ -394,7 +394,7 @@ export const searchMarkdown = internalQuery({
       // Return empty pagination result
       return {
         page: [],
-        isDone: false,
+        isDone: true,
         continueCursor: null,
       };
     }
@@ -438,8 +438,9 @@ export const searchMarkdown = internalQuery({
       page: results.page.map(page => page.markdown ?? ""),
       isDone: results.isDone,
       continueCursor: results.continueCursor,
-      splitCursor: results.splitCursor,
-      pageStatus: results.pageStatus,
+      splitCursor: results.splitCursor ?? undefined,
+      pageStatus: results.pageStatus ?? undefined,
     };
   },
 });
+
