@@ -1,7 +1,7 @@
 // This file defines the CRUD operations for the metadata table
 import { internalQuery, internalMutation } from './_generated/server';
 import { v } from 'convex/values';
-import { metadataDoc } from './types';
+import { metadataDoc } from './schema';
 import { metadataOperation } from './extras/utils';
 import { Doc, Id } from './_generated/dataModel';
 import { internal } from './_generated/api';

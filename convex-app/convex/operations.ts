@@ -1,7 +1,7 @@
 // This file defines functions for logging operations in the database
 import { internalQuery, internalMutation } from './_generated/server';
 import { v } from 'convex/values';
-import { operationsDoc } from './types';
+import { operationsDoc } from './schema';
 
 const defaultLimit = 1;
 

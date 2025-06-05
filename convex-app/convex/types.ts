@@ -59,6 +59,9 @@ export type LifelogQueryParams = {
   /** Optional maximum endTime as unix timestamp (inclusive) */
   endTime?: number;
 
+  // TODO: Implement isStarred filter
+  isStarred?: boolean;
+
   direction: 'asc' | 'desc';
 };
 
@@ -79,71 +82,12 @@ export type LimitlessLifelog = {
   id: string;
   title: string;
   markdown: string | null;
-  startTime?: string; // ISO format
-  endTime?: string; // ISO format
+  startTime: string; // ISO format
+  endTime: string; // ISO format
+  updatedAt: string; // ISO format
+  isStarred: boolean;
   contents: ContentNode[];
 };
-
-export const lifelogDoc = v.object({
-  lifelogId: v.string(),
-  title: v.string(),
-  markdown: v.union(v.string(), v.null()),
-  startTime: v.number(),
-  endTime: v.number(),
-  contents: v.array(
-    v.object({
-      type: v.union(
-        v.literal('heading1'),
-        v.literal('heading2'),
-        v.literal('heading3'),
-        v.literal('blockquote'),
-        v.literal('paragraph'),
-      ),
-      content: v.string(),
-      startTime: v.optional(v.number()),
-      endTime: v.optional(v.number()),
-      startOffsetMs: v.optional(v.number()),
-      endOffsetMs: v.optional(v.number()),
-      children: v.optional(v.array(v.any())),
-      speakerName: v.optional(v.union(v.string(), v.null())),
-      speakerIdentifier: v.optional(v.union(v.literal('user'), v.null())),
-    }),
-  ),
-  embeddingId: v.union(v.id('markdownEmbeddings'), v.null()),
-});
-
-export const operationsDoc = v.object({
-  operation: v.union(
-    v.literal('sync'),
-    v.literal('create'),
-    v.literal('read'),
-    v.literal('update'),
-    v.literal('delete'),
-  ),
-  table: v.union(
-    v.literal('lifelogs'),
-    v.literal('metadata'),
-    v.literal('markdownEmbeddings'),
-  ),
-  success: v.boolean(),
-  data: v.object({
-    message: v.optional(v.string()),
-    error: v.optional(v.string()),
-  }),
-});
-
-export const metadataDoc = v.object({
-  startTime: v.number(),
-  endTime: v.number(),
-  syncedUntil: v.number(),
-  lifelogIds: v.array(v.string()),
-});
-
-export const markdownEmbeddingDoc = v.object({
-  markdown: v.string(),
-  embedding: v.array(v.number()),
-  lifelogId: v.string(),
-});
 
 export type ConvexLifelogs = Omit<Doc<'lifelogs'>, '_id' | '_creationTime'>;
 
@@ -176,6 +120,8 @@ export const convertToConvexFormat = (
       })),
       startTime: new Date(log.startTime).getTime(),
       endTime: new Date(log.endTime).getTime(),
+      updatedAt: new Date(log.updatedAt).getTime(),
+      isStarred: log.isStarred,
       embeddingId: null,
     };
   });
@@ -197,6 +143,9 @@ export const convertToLimitlessFormat = (
       markdown: log.markdown,
       startTime: new Date(log.startTime).toISOString(),
       endTime: new Date(log.endTime).toISOString(),
+      // NOTE: updatedAt should not remain optional in the DB
+      updatedAt: new Date(log.updatedAt || log.endTime).toISOString(),
+      isStarred: log.isStarred ?? false,
       contents: log.contents.map((content) => {
         return {
           type: content.type,

@@ -6,7 +6,7 @@
 import { internalQuery, internalMutation } from './_generated/server';
 import { v } from 'convex/values';
 import { Doc, Id } from './_generated/dataModel';
-import { lifelogDoc } from './types';
+import { lifelogDoc } from './schema';
 import { internal } from './_generated/api';
 import { lifelogOperation, markdownEmbeddingOperation } from './extras/utils';
 import { paginationOptsValidator } from 'convex/server';

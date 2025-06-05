@@ -339,6 +339,9 @@ http.route({
       };
       const startTime = url.searchParams.get('startTime') ?? undefined
       const endTime = url.searchParams.get('endTime') ?? undefined;
+      
+      // TODO: Implement isStarred filter
+      const isStarred = url.searchParams.get('isStarred') === 'true' ? true : undefined;
 
       const args = {
         query,

@@ -1,7 +1,7 @@
 // This file defines operations for handling markdown embeddings
 import { internalQuery, internalMutation } from './_generated/server';
 import { v } from 'convex/values';
-import { markdownEmbeddingDoc } from './types';
+import { markdownEmbeddingDoc } from './schema';
 import { markdownEmbeddingOperation } from './extras/utils';
 import { Doc, Id } from './_generated/dataModel';
 // CREATE
