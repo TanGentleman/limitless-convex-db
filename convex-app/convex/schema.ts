@@ -7,6 +7,8 @@ export const lifelogDoc = v.object({
   markdown: v.union(v.string(), v.null()),
   startTime: v.number(),
   endTime: v.number(),
+  updatedAt: v.optional(v.number()),
+  isStarred: v.optional(v.boolean()),
   contents: v.array(
     v.object({
       type: v.union(
@@ -19,8 +21,6 @@ export const lifelogDoc = v.object({
       content: v.string(),
       startTime: v.optional(v.number()),
       endTime: v.optional(v.number()),
-      updatedAt: v.optional(v.number()),
-      isStarred: v.optional(v.boolean()),
       startOffsetMs: v.optional(v.number()),
       endOffsetMs: v.optional(v.number()),
       children: v.optional(v.array(v.any())),
