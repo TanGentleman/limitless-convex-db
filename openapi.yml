@@ -77,6 +77,13 @@ components:
           type: string
           format: date-time
           description: ISO format in given timezone.
+        isStarred:
+          type: boolean
+          description: Whether the lifelog has been starred by the user.
+        updatedAt:
+          type: string
+          format: date-time
+          description: The timestamp when the lifelog was last updated in ISO 8601 format.
 
     MetaLifelogs:
       type: object
@@ -178,6 +185,13 @@ paths:
           schema:
             type: integer
           description: Maximum number of entries to return.
+        - in: query
+          name: isStarred
+          schema:
+            type: boolean
+            default: false
+          description: When true, only starred lifelogs will be returned.
+
       responses:
         "200":
           description: Successful response with entries.
