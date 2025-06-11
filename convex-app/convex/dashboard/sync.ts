@@ -1,5 +1,5 @@
 import { v } from 'convex/values';
-import { action } from '../_generated/server';
+import { action, internalMutation } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { internalAction } from '../_generated/server';
 import {
@@ -106,8 +106,8 @@ const CONFIG = {
   useWellBehavedSyncAlgorithm: true,
   /** Number of API calls to check for gaps on previous date */
   checkPreviousDateCalls: 2,
-  /** Time in milliseconds before metadata is considered stale (3 minutes) */
-  staleTimeLimit: 3 * 60 * 1000,
+  /** Time in milliseconds before metadata is considered stale (2 minutes) */
+  staleTimeLimit: 2 * 60 * 1000,
 };
 
 // ================================================================================
@@ -777,12 +777,12 @@ async function fetchLifelogs(
  *
  * @returns Promise<boolean> - true if new lifelogs were added, false otherwise
  */
-export const syncLimitless = internalAction({
+
+// Todo: Add remove unncessary ctx.runQuery and ctx.runMutation calls
+// NOTE: Prefer wrappers around generic ctx calls
+export const syncMutationWrapper = internalMutation({
   handler: async (ctx) => {
-    // Check if the API key is set
-    if (!process.env.LIMITLESS_API_KEY) {
-      throw new Error('LIMITLESS_API_KEY environment variable not set');
-    }
+    // Can assume API key is set
     // 1. Retrieve metadata about previously synced lifelogs
     const metadata = await ctx.runMutation(
       internal.extras.tests.getMetadataDoc,
@@ -824,6 +824,8 @@ export const syncLimitless = internalAction({
         throw new Error('No lifelogs found in first sync.');
       }
       const convexLifelogs = convertToConvexFormat(lifelogs);
+      console.log("First sync results:")
+      console.log(convexLifelogs);
       const newLifelogIds = await ctx.runMutation(
         internal.lifelogs.createDocs,
         {
@@ -990,6 +992,15 @@ export const syncLimitless = internalAction({
       operations: [operation],
     });
 
+    const itemsArray = convexLifelogs.map((log) => ({
+      lifelogId: log.lifelogId,
+      updatedAt: log.updatedAt ?? 0,
+    }));
+    const itemReport = await ctx.runQuery(internal.updates.isLifelogUpdated, {
+      items: itemsArray,
+    });
+    console.log(itemReport);
+
     console.log(
       `Sync completed successfully. Added ${newLifelogs.length} lifelogs.`,
     );
@@ -997,40 +1008,281 @@ export const syncLimitless = internalAction({
   },
 });
 
+export const syncLimitless = internalAction({
+  handler: async (ctx) => {
+    // Check if the API key is set
+    if (!process.env.LIMITLESS_API_KEY) {
+      throw new Error('LIMITLESS_API_KEY environment variable not set');
+    }
+    const isNewLifelogs = await ctx.runMutation(
+      internal.dashboard.sync.syncMutationWrapper,
+    );
+    return isNewLifelogs;
+  },
+});
+/*
+
+    // 1. Retrieve metadata about previously synced lifelogs
+    const metadata = await ctx.runMutation(
+      internal.extras.tests.getMetadataDoc,
+    );
+    // if metadata is not stale, return true (3 minutes)
+    if (metadata._creationTime > Date.now() - CONFIG.staleTimeLimit) {
+      console.log('Metadata is fresh. Skipping sync.');
+      return false;
+    }
+    const existingIdsSet = new Set<string>(metadata.lifelogIds);
+    console.log(
+      `Metadata: ${existingIdsSet.size} existing lifelog IDs, Synced until: ${
+        metadata.syncedUntil ? formatDate(metadata.syncedUntil) : 'N/A'
+      }`,
+    );
+
+    // 2. Determine sync strategy
+    const isFirstSync = metadata.syncedUntil === 0;
+    if (isFirstSync) {
+      // Handle separately
+      const args: LifelogRequest = {
+        direction: 'asc',
+        includeMarkdown: true,
+        includeHeadings: true,
+      };
+      const cursor = undefined;
+      const batchSize = 1;
+      const response = await makeApiRequest(args, cursor, batchSize);
+      if (!response.ok) {
+        const error = await handleApiError(response);
+        throw new Error(`Failed first sync: ${error.status} ${error.category}`);
+      }
+      // Process the response
+      const data = await response.json();
+      const lifelogs: LimitlessLifelog[] = data.data?.lifelogs || [];
+
+      if (lifelogs.length === 0) {
+        console.log(`${MESSAGES.NO_LIFELOGS_FOUND} in first sync.`);
+        throw new Error('No lifelogs found in first sync.');
+      }
+      const convexLifelogs = convertToConvexFormat(lifelogs);
+      console.log("First sync results:")
+      console.log(convexLifelogs);
+      const newLifelogIds = await ctx.runMutation(
+        internal.lifelogs.createDocs,
+        {
+          lifelogs: convexLifelogs,
+        },
+      );
+      const firstLifelog = convexLifelogs[0];
+      const metadata = {
+        startTime: firstLifelog.startTime,
+        endTime: firstLifelog.endTime,
+        lifelogIds: newLifelogIds,
+        syncedUntil: firstLifelog.endTime,
+      };
+      await ctx.runMutation(internal.metadata.createDocs, {
+        metadataDocs: [metadata],
+      });
+      // operation
+      const operation = metadataOperation(
+        'sync',
+        `First sync completed successfully. Added ${lifelogs.length} lifelogs.`,
+        true,
+      );
+      await ctx.runMutation(internal.operations.createDocs, {
+        operations: [operation],
+      });
+      return true;
+    }
+    // If this is not the first sync and we have end time
+    const lastSyncDateStr = formatDateToYYYYMMDD(
+      new Date(metadata.syncedUntil),
+    );
+    const direction = CONFIG.experimentalDescendingStrategy ? 'desc' : 'asc';
+    console.log(
+      `Sync strategy: ${direction}, using well-behaved algorithm: ${CONFIG.useWellBehavedSyncAlgorithm}`,
+    );
+
+    // 3. Fetch lifelogs using the chosen strategy
+    const fetchArgs: LifelogRequest = {
+      direction: direction,
+      includeMarkdown: true,
+      includeHeadings: true,
+    };
+
+    // Only add date parameter if using experimental features
+    if (
+      CONFIG.experimentalAscDateIncrement ||
+      CONFIG.useWellBehavedSyncAlgorithm
+    ) {
+      fetchArgs.date = lastSyncDateStr;
+    }
+
+    const fetchResult = await fetchLifelogs(fetchArgs, existingIdsSet);
+    const fetchedLifelogs = fetchResult.lifelogs;
+
+    // 4. Process fetched lifelogs
+    if (fetchedLifelogs.length === 0) {
+      console.log('No new lifelogs found from API.');
+
+      // Check if we need to update syncedUntil timestamp
+      const lastProcessedTime = fetchResult.lastProcessedDate
+        ? new Date(fetchResult.lastProcessedDate).getTime()
+        : 0;
+
+      let operationMessage = `No new lifelogs found. ${existingIdsSet.size} lifelogs up to date. API calls: ${fetchResult.apiCalls}`;
+
+      // Update metadata if we have a newer processed date
+      if (lastProcessedTime > metadata.syncedUntil) {
+        // Update metadata with new syncedUntil value
+        await ctx.runMutation(internal.metadata.createDocs, {
+          metadataDocs: [
+            {
+              startTime: metadata.startTime,
+              endTime: metadata.endTime,
+              lifelogIds: metadata.lifelogIds,
+              syncedUntil: lastProcessedTime,
+            },
+          ],
+        });
+
+        // Add date update information to operation message
+        operationMessage = `No new lifelogs found. Updated sync date from ${formatDate(
+          new Date(metadata.syncedUntil),
+        )} to ${formatDate(new Date(lastProcessedTime))}. ${
+          existingIdsSet.size
+        } lifelogs up to date. API calls: ${fetchResult.apiCalls}`;
+      }
+
+      // Create operation record
+      const operation = metadataOperation('sync', operationMessage, true);
+      await ctx.runMutation(internal.operations.createDocs, {
+        operations: [operation],
+      });
+
+      return false;
+    }
+
+    // Ensure lifelogs are in ascending order for processing and metadata update
+    const chronologicallyOrderedLifelogs =
+      direction === 'desc'
+        ? fetchedLifelogs.reverse() // Reverse descending results
+        : fetchedLifelogs; // Ascending results are already correct
+
+    // Filter out any duplicates missed by fetchLifelogs (safeguard)
+    const newLifelogs = chronologicallyOrderedLifelogs.filter(
+      (log) => !existingIdsSet.has(log.id),
+    );
+
+    if (newLifelogs.length === 0) {
+      console.log(
+        `Fetched ${fetchedLifelogs.length} lifelogs, but all were already known duplicates.`,
+      );
+      // Log that we found duplicates but nothing new
+      const operation = metadataOperation(
+        'sync',
+        `Fetched ${fetchedLifelogs.length} lifelogs, all duplicates. ${existingIdsSet.size} lifelogs up to date.`,
+        true,
+      );
+      await ctx.runMutation(internal.operations.createDocs, {
+        operations: [operation],
+      });
+      return false;
+    }
+
+    console.log(`Found ${newLifelogs.length} new lifelogs to add.`);
+
+    // 5. Convert lifelogs to Convex format and store them
+    const convexLifelogs = convertToConvexFormat(newLifelogs);
+    const newLifelogIds = await ctx.runMutation(internal.lifelogs.createDocs, {
+      lifelogs: convexLifelogs,
+    });
+
+    // 6. Update metadata table
+    const newEndTime = convexLifelogs[convexLifelogs.length - 1].endTime;
+
+    const updatedEndTime = Math.max(metadata.endTime, newEndTime);
+    if (metadata.endTime > newEndTime) {
+      console.error(
+        `Existing metadata.endTime (${metadata.endTime}) is later than new batch endTime (${newEndTime})`,
+      );
+    }
+    // syncedUntil should reflect the timestamp of the latest known record
+    const processedDate = fetchResult.lastProcessedDate
+      ? new Date(fetchResult.lastProcessedDate).getTime()
+      : 0;
+    const updatedSyncedUntil = Math.max(processedDate, updatedEndTime);
+    const updatedLifelogIds = metadata.lifelogIds.concat(newLifelogIds);
+
+    const operation = metadataOperation(
+      'sync',
+      `Added ${newLifelogs.length} new lifelogs. Total: ${updatedLifelogIds.length}. API calls: ${fetchResult.apiCalls}`,
+      true,
+    );
+    await ctx.runMutation(internal.metadata.createDocs, {
+      metadataDocs: [
+        {
+          startTime: metadata.startTime,
+          endTime: updatedEndTime,
+          lifelogIds: updatedLifelogIds,
+          syncedUntil: updatedSyncedUntil,
+        },
+      ],
+    });
+    await ctx.runMutation(internal.operations.createDocs, {
+      operations: [operation],
+    });
+
+    const itemsArray = convexLifelogs.map((log) => ({
+      lifelogId: log.lifelogId,
+      updatedAt: log.updatedAt ?? 0,
+    }));
+    const itemReport = await ctx.runQuery(internal.updates.isLifelogUpdated, {
+      items: itemsArray,
+    });
+    console.log(itemReport);
+
+    console.log(
+      `Sync completed successfully. Added ${newLifelogs.length} lifelogs.`,
+    );
+    return true;
+  },
+});
+*/
+
 // ================================================================================
 // PUBLIC API
 // ================================================================================
 
-export const runSync = internalAction({
-  args: {
-    sendNotification: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args): Promise<boolean> => {
-    const isNewLifelogs: boolean = await ctx.runAction(
-      internal.dashboard.sync.syncLimitless,
-    );
-    if (args.sendNotification === true) {
-      await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
-        operation: 'sync',
-      });
-    }
+// export const runSync = internalAction({
+//   args: {
+//     sendNotification: v.optional(v.boolean()),
+//   },
+//   handler: async (ctx, args): Promise<boolean> => {
+//     const isNewLifelogs = await ctx.runMutation(
+//       internal.dashboard.sync.syncMutationWrapper,
+//     );
+//     if (args.sendNotification === true) {
+//       await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+//         operation: 'sync',
+//       });
+//     }
 
-    return isNewLifelogs;
-  },
-});
+//     return isNewLifelogs;
+//   },
+// });
 
 export const sync = action({
   args: {
     sendNotification: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<boolean> => {
-    const isNewLifelogs: boolean = await ctx.runAction(
-      internal.dashboard.sync.runSync,
-      {
-        sendNotification: args.sendNotification,
-      },
-    );
-
+    const isNewLifelogs = await ctx.runMutation(
+      internal.dashboard.sync.syncMutationWrapper
+    )
+    if (args.sendNotification === true) {
+      await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+        operation: 'sync',
+      });
+    }
     return isNewLifelogs;
   },
 });
