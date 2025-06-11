@@ -1,6 +1,24 @@
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
+export const contentsNode = v.object({
+  type: v.union(
+    v.literal('heading1'),
+    v.literal('heading2'),
+    v.literal('heading3'),
+    v.literal('blockquote'),
+    v.literal('paragraph'),
+  ),
+  content: v.string(),
+  startTime: v.optional(v.number()),
+  endTime: v.optional(v.number()),
+  startOffsetMs: v.optional(v.number()),
+  endOffsetMs: v.optional(v.number()),
+  children: v.optional(v.array(v.any())),
+  speakerName: v.optional(v.union(v.string(), v.null())),
+  speakerIdentifier: v.optional(v.union(v.literal('user'), v.null())),
+});
+
 export const lifelogDoc = v.object({
   lifelogId: v.string(),
   title: v.string(),
@@ -9,25 +27,7 @@ export const lifelogDoc = v.object({
   endTime: v.number(),
   updatedAt: v.optional(v.number()),
   isStarred: v.optional(v.boolean()),
-  contents: v.array(
-    v.object({
-      type: v.union(
-        v.literal('heading1'),
-        v.literal('heading2'),
-        v.literal('heading3'),
-        v.literal('blockquote'),
-        v.literal('paragraph'),
-      ),
-      content: v.string(),
-      startTime: v.optional(v.number()),
-      endTime: v.optional(v.number()),
-      startOffsetMs: v.optional(v.number()),
-      endOffsetMs: v.optional(v.number()),
-      children: v.optional(v.array(v.any())),
-      speakerName: v.optional(v.union(v.string(), v.null())),
-      speakerIdentifier: v.optional(v.union(v.literal('user'), v.null())),
-    }),
-  ),
+  contents: v.array(contentsNode),
   embeddingId: v.union(v.id('markdownEmbeddings'), v.null()),
 });
 

@@ -84,8 +84,8 @@ export type LimitlessLifelog = {
   markdown: string | null;
   startTime: string; // ISO format
   endTime: string; // ISO format
-  updatedAt: string; // ISO format
-  isStarred: boolean;
+  updatedAt?: string; // ISO format
+  isStarred?: boolean;
   contents: ContentNode[];
 };
 
@@ -120,7 +120,7 @@ export const convertToConvexFormat = (
       })),
       startTime: new Date(log.startTime).getTime(),
       endTime: new Date(log.endTime).getTime(),
-      updatedAt: new Date(log.updatedAt).getTime(),
+      updatedAt: log.updatedAt === undefined ? undefined : new Date(log.updatedAt).getTime(),
       isStarred: log.isStarred,
       embeddingId: null,
     };
@@ -143,9 +143,8 @@ export const convertToLimitlessFormat = (
       markdown: log.markdown,
       startTime: new Date(log.startTime).toISOString(),
       endTime: new Date(log.endTime).toISOString(),
-      // NOTE: updatedAt should not remain optional in the DB
-      updatedAt: new Date(log.updatedAt || log.endTime).toISOString(),
-      isStarred: log.isStarred ?? false,
+      updatedAt: log.updatedAt === undefined ? undefined : new Date(log.updatedAt).toISOString(),
+      isStarred: log.isStarred,
       contents: log.contents.map((content) => {
         return {
           type: content.type,

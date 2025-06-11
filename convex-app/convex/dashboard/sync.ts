@@ -999,7 +999,15 @@ export const syncMutationWrapper = internalMutation({
     const itemReport = await ctx.runQuery(internal.updates.isLifelogUpdated, {
       items: itemsArray,
     });
-    console.log(itemReport);
+    console.log('itemReport', itemReport);
+    if (itemReport.createIds.length > 0 || itemReport.updateIds.length > 0 || itemReport.deleteIds.length > 0) {
+      // Run update mutation
+      await ctx.runMutation(internal.updates.handleUpdates, {
+        create: itemReport.createIds,
+        update: itemReport.updateIds,
+        delete: itemReport.deleteIds,
+      });
+  }
 
     console.log(
       `Sync completed successfully. Added ${newLifelogs.length} lifelogs.`,

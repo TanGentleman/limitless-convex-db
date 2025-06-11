@@ -1,6 +1,6 @@
 import { internalQuery, internalMutation } from './_generated/server';
 import { v } from 'convex/values';
-import { lifelogDoc } from './schema';
+import { contentsNode, lifelogDoc } from './schema';
 
 
 // Receive batch of lifelogs from API
@@ -16,12 +16,11 @@ const itemsArray = v.array(
   }),
 );
 
-const resultArray = v.object({
-    createIds: v.array(v.id('lifelogs')),
-    updateIds: v.array(v.id('lifelogs')),
-    deleteIds: v.array(v.id('lifelogs')),
-});
-
+// const resultArray = v.object({
+//     createIds: v.array(v.id('lifelogs')),
+//     updateIds: v.array(v.id('lifelogs')),
+//     deleteIds: v.array(v.id('lifelogs')),
+// });
 
 export const isLifelogUpdated = internalQuery({
   args: {
@@ -59,35 +58,48 @@ export const isLifelogUpdated = internalQuery({
   },
 });
 
-// export const handleUpdates = internalMutation({
-//     args: {
-//         create: v.array(lifelogDoc),
-//         update: v.array(v.id('lifelogs')),
-//         deleteIds: v.array(v.id('lifelogs')),
-//     },
-//     handler: async (ctx, args) => {
-//         const createdIds: string[] = [];
-//         const updatedIds: string[] = [];
-//         const deletedIds: string[] = [];
+export const handleUpdates = internalMutation({
+    args: {
+        create: v.array(lifelogDoc),
+        update: v.array(v.object({
+            id: v.id('lifelogs'),
+            title: v.string(),
+            markdown: v.union(v.string(), v.null()),
+            embeddingId: v.optional(v.union(v.id('markdownEmbeddings'), v.null())),
+            updatedAt: v.optional(v.number()),
+            isStarred: v.optional(v.boolean()),
+            contents: v.array(contentsNode),
+            // startTime: v.optional(v.number()),
+            // endTime: v.optional(v.number()),
+            // lifelogId: v.string(),
+        })),
+        delete: v.array(v.id('lifelogs')),
+    },
+    handler: async (ctx, args) => {
+        const createdIds: string[] = [];
+        const updatedIds: string[] = [];
+        const deletedIds: string[] = [];
 
-//         // Create new lifelogs
-//         for (const id of args.createIds) {
-//             const newLifelog = { lifelogId: id, createdAt: Date.now() };
-//             const createdId = await ctx.db.insert('lifelogs', newLifelog);
-//             createdIds.push(createdId);
-//         }
+        // Create new lifelogs
+        for (const doc of args.create) {
+            const createdId = await ctx.db.insert('lifelogs', doc);
+            createdIds.push(createdId);
+        }
 
-//         // Update existing lifelogs
-//         for (const id of args.updateIds) {
-//             await ctx.db.patch(id, { updatedAt: Date.now() });
-//             updatedIds.push(id);
-//         }
+        // Update existing lifelogs
+        // Note: Not validated, may throw
+        for (const doc of args.update) {
+            const { id, ...updateData } = doc;
+            await ctx.db.patch(id, updateData);
+            updatedIds.push(id);
+        }
 
-//         // Delete lifelogs
-//         for (const id of args.deleteIds) {
-//             await ctx.db.delete(id);
-//             deletedIds.push(id);
-//         }
+        // Delete lifelogs
+        for (const id of args.delete) {
+            await ctx.db.delete(id);
+            deletedIds.push(id);
+        }
 
-//         return { createdIds, updatedIds, deletedIds };
-//     }
+        return { createdIds, updatedIds, deletedIds };
+    }
+});
