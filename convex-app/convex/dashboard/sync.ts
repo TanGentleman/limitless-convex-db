@@ -1024,23 +1024,23 @@ export const syncLimitless = internalAction({
 // PUBLIC API
 // ================================================================================
 
-// export const runSync = internalAction({
-//   args: {
-//     sendNotification: v.optional(v.boolean()),
-//   },
-//   handler: async (ctx, args): Promise<boolean> => {
-//     const isNewLifelogs = await ctx.runMutation(
-//       internal.dashboard.sync.syncMutationWrapper,
-//     );
-//     if (args.sendNotification === true) {
-//       await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
-//         operation: 'sync',
-//       });
-//     }
+export const runSync = internalAction({
+  args: {
+    sendNotification: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<boolean> => {
+    const isNewLifelogs = await ctx.runMutation(
+      internal.dashboard.sync.syncMutationWrapper,
+    );
+    if (args.sendNotification === true) {
+      await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+        operation: 'sync',
+      });
+    }
 
-//     return isNewLifelogs;
-//   },
-// });
+    return isNewLifelogs;
+  },
+});
 
 export const sync = action({
   args: {
