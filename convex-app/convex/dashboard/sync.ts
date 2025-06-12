@@ -1029,8 +1029,8 @@ export const runSync = internalAction({
     sendNotification: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<boolean> => {
-    const isNewLifelogs = await ctx.runMutation(
-      internal.dashboard.sync.syncMutationWrapper,
+    const isNewLifelogs = await ctx.runAction(
+      internal.dashboard.sync.syncLimitless,
     );
     if (args.sendNotification === true) {
       await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
