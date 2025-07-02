@@ -27,7 +27,7 @@ const MESSAGES = {
   REACHED_MAX_API_CALLS: 'Reached maximum API calls',
   SYNC_COMPLETE: 'Sync is complete',
   NO_NEXT_CURSOR: 'No next cursor',
-  FEWER_ITEMS: 'Received fewer items than batch size',
+  FEWER_ITEMS: 'Received fewer lifelogs than expected. Marking date as done.',
 };
 
 // ================================================================================
@@ -63,6 +63,7 @@ interface PaginationResult {
 interface ApiResponseMeta {
   lifelogs?: {
     nextCursor?: string;
+    count: number;
   };
 }
 
@@ -89,8 +90,8 @@ interface FetchResult {
  */
 const CONFIG = {
   /** Number of lifelogs to fetch per API request */
-  defaultBatchSize: 30,
-  /** Maximum number of lifelogs to fetch per sync */
+  maxBatchSize: 25,
+  /** Maximum number of lifelogs to fetch before failing a descending sync */
   maximumLimit: 200,
   /** Maximum consecutive duplicate batches before stopping */
   maxDuplicateBatches: 3,
@@ -229,17 +230,16 @@ function handlePagination(
   limit?: number,
 ): PaginationResult {
   const nextCursor = meta.lifelogs?.nextCursor;
-
-  // Stop if the API returned fewer results than requested
-  // if (batchSize < requestedBatchSize) {
-  //   console.log(
-  //     `${MESSAGES.FEWER_ITEMS} (${batchSize}/${requestedBatchSize}).`,
-  //   );
-  //   return { continue: false, dateIsDone: true };
-  // }
+  const count = meta.lifelogs?.count;
+  if (count !== undefined && count < CONFIG.maxBatchSize) {
+    console.log(
+      `${MESSAGES.FEWER_ITEMS} (${count}/${CONFIG.maxBatchSize})`,
+    );
+    return { continue: false, dateIsDone: true };
+  }
   // If there's no next cursor, then we're done.
   if (!nextCursor) {
-    console.log(`${MESSAGES.NO_NEXT_CURSOR}. Ending fetch.`);
+    console.log(`${MESSAGES.NO_NEXT_CURSOR}`);
     return { continue: false, dateIsDone: true };
   }
 
@@ -345,7 +345,7 @@ async function fetchDescendingStrategy(
   let apiCalls = 0;
 
   while (apiCalls < CONFIG.maxApiCalls) {
-    const batchSize = CONFIG.defaultBatchSize;
+    const batchSize = CONFIG.maxBatchSize;
     const response = await makeApiRequest(args, cursor, batchSize);
     apiCalls++;
 
@@ -459,7 +459,7 @@ async function fetchAscendingStrategy(
   let lastCompletedDate: string | undefined = undefined;
 
   while (apiCalls < CONFIG.maxApiCalls) {
-    const batchSize = CONFIG.defaultBatchSize;
+    const batchSize = CONFIG.maxBatchSize;
     const response = await makeApiRequest(args, cursor, batchSize);
     apiCalls++;
 
