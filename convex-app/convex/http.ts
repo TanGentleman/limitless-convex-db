@@ -64,7 +64,7 @@ function parseLifelogHttpParams(params: URLSearchParams): {
     direction: requestOptions.direction ?? defaultDirection,
     paginationOpts: {
       numItems: requestOptions.limit ?? defaultLimit,
-      cursor: requestOptions.cursor ?? null,
+      cursor: requestOptions.cursor || null,
     },
   };
 
