@@ -1,5 +1,5 @@
 import { v } from 'convex/values';
-import { action, internalMutation } from '../_generated/server';
+import { action, internalMutation, internalQuery } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { internalAction } from '../_generated/server';
 import {
@@ -1056,5 +1056,81 @@ export const sync = action({
       });
     }
     return isNewLifelogs;
+  },
+});
+
+export const firstSync = internalAction({
+  handler: async (ctx) => {
+    // 1. Make sure no existing metadata exists
+    const metadata = await ctx.runQuery(internal.metadata.readDocs, { limit: 1 });
+    if (metadata.length > 0) {
+      throw new Error('Metadata already exists');
+    }
+
+    let allLifelogs: LimitlessLifelog[] = [];
+    let cursor: string | undefined = undefined;
+    let apiCalls = 0;
+
+    // 2. Fetch all lifelogs in ascending order using pagination
+    do {
+      const batchSize = 50;
+      const args: LifelogRequest = cursor === undefined ? {
+        direction: 'asc',
+        includeMarkdown: true,
+        includeHeadings: true,
+      } : { cursor };
+
+      const response = await makeApiRequest(args, cursor, batchSize);
+      apiCalls++;
+
+      if (!response.ok) {
+        const error = await handleApiError(response);
+        throw new Error(`Failed to fetch lifelogs: ${error.status} ${error.category}`);
+      }
+
+      const data = await response.json();
+      const lifelogsInBatch: LimitlessLifelog[] = data.data?.lifelogs || [];
+      allLifelogs = [...allLifelogs, ...lifelogsInBatch];
+
+      const meta: ApiResponseMeta = data.meta || {};
+      cursor = meta.lifelogs?.nextCursor;
+
+      // Break if no more pages or reached max API calls
+      if (!cursor || apiCalls >= CONFIG.maxApiCalls) break;
+    } while (true);
+
+    if (allLifelogs.length === 0) {
+      throw new Error('No lifelogs found in first sync');
+    }
+
+    // 3. Convert to Convex format and store
+    const convexLifelogs = convertToConvexFormat(allLifelogs);
+    const newLifelogIds = await ctx.runMutation(internal.lifelogs.createDocs, {
+      lifelogs: convexLifelogs,
+    });
+
+    // 4. Create metadata
+    const firstLifelog = convexLifelogs[0];
+    const lastLifelog = convexLifelogs[convexLifelogs.length - 1];
+    await ctx.runMutation(internal.metadata.createDocs, {
+      metadataDocs: [{
+        startTime: firstLifelog.startTime,
+        endTime: lastLifelog.endTime,
+        lifelogIds: newLifelogIds,
+        syncedUntil: lastLifelog.endTime,
+      }],
+    });
+
+    // 5. Log operation
+    const operation = metadataOperation(
+      'sync',
+      `First sync completed. Added ${allLifelogs.length} lifelogs.`,
+      true
+    );
+    await ctx.runMutation(internal.operations.createDocs, {
+      operations: [operation],
+    });
+
+    return true;
   },
 });
