@@ -92,11 +92,13 @@ const CONFIG = {
   /** Number of lifelogs to fetch per API request */
   maxBatchSize: 25,
   /** Maximum number of lifelogs to fetch before failing a descending sync */
-  maximumLimit: 200,
+  maxBacklog: 100,
+  /** Maximum number of lifelogs to fetch before stopping */
+  maximumLimit: 1000,
   /** Maximum consecutive duplicate batches before stopping */
   maxDuplicateBatches: 3,
-  /** Maximum API calls per sync operation */
-  maxApiCalls: 20,
+  /** Maximum successful API calls per sync operation */
+  maxApiCalls: 50,
   /** Whether to use descending strategy by default for non-first syncs */
   experimentalDescendingStrategy: false,
   /** Whether to use date parameter instead of start for ascending strategy */
@@ -125,21 +127,23 @@ const CONFIG = {
  */
 async function makeApiRequest(
   args: LifelogRequest,
-  cursor: string | undefined,
-  batchSize: number,
 ): Promise<Response> {
   const params: LifelogRequest = {
-    limit: batchSize,
+    limit: args.limit,
     includeMarkdown: args.includeMarkdown !== false,
     includeHeadings: args.includeHeadings !== false,
     direction: args.direction,
-    ...(cursor && { cursor }),
-    ...(args.timezone && { timezone: args.timezone }),
   };
 
   // Handle date parameter
   if (args.date) {
     params.date = args.date;
+  }
+  if (args.timezone) {
+    params.timezone = args.timezone;
+  }
+  if (args.cursor) {
+    params.cursor = args.cursor;
   }
 
   // Convert params to URL query string
@@ -216,18 +220,14 @@ function validateFetchParams(args: LifelogRequest): void {
  * Handles pagination logic.
  *
  * @param meta - API response metadata containing pagination information
- * @param batchSize - Number of items received in this batch
- * @param requestedBatchSize - Number of items requested in this batch
- * @param totalFetched - Total number of items fetched so far
- * @param limit - Optional limit on total items to fetch
+ * @param fetchedSoFar - Number of items fetched so far in the current operation
+ * @param maxToFetch - Optional maximum number of items to fetch
  * @returns PaginationResult - Object with pagination details
  */
 function handlePagination(
   meta: ApiResponseMeta,
-  batchSize: number,
-  requestedBatchSize: number,
-  totalFetched: number,
-  limit?: number,
+  fetchedSoFar: number,
+  maxToFetch?: number,
 ): PaginationResult {
   const nextCursor = meta.lifelogs?.nextCursor;
   const count = meta.lifelogs?.count;
@@ -244,14 +244,14 @@ function handlePagination(
   }
 
   // Check if we've reached the requested limit
-  if (limit !== undefined && totalFetched >= limit) {
+  if (maxToFetch !== undefined && count !== undefined && fetchedSoFar + count >= maxToFetch) {
     console.log(
-      `${MESSAGES.REACHED_LIMIT} of ${limit} lifelogs. Stopping fetch.`,
+      `${MESSAGES.REACHED_LIMIT} of ${maxToFetch} lifelogs. Stopping fetch.`,
     );
     return { continue: false };
   }
 
-  console.log(`Fetched ${batchSize} lifelogs, continuing with next cursor...`);
+  console.log(`Fetched ${count} lifelogs, continuing with next cursor...`);
   return { continue: true, nextCursor };
 }
 
@@ -272,13 +272,14 @@ async function checkLatestLifelogDuplicate(
   date?: string,
 ): Promise<FetchResult> {
   const args: LifelogRequest = {
+    limit: 1,
+    cursor: undefined,
     date: date,
     direction: 'desc',
     includeMarkdown: false,
     includeHeadings: false,
   };
-  const batchSize = 1;
-  const response = await makeApiRequest(args, undefined, batchSize);
+  const response = await makeApiRequest(args);
   const apiCalls = 1;
 
   if (!response.ok) {
@@ -345,8 +346,12 @@ async function fetchDescendingStrategy(
   let apiCalls = 0;
 
   while (apiCalls < CONFIG.maxApiCalls) {
-    const batchSize = CONFIG.maxBatchSize;
-    const response = await makeApiRequest(args, cursor, batchSize);
+    const requestArgs: LifelogRequest = {
+      ...args,
+      cursor: cursor,
+      direction: 'desc',
+    };
+    const response = await makeApiRequest(requestArgs);
     apiCalls++;
 
     if (!response.ok) {
@@ -394,7 +399,7 @@ async function fetchDescendingStrategy(
     }
 
     // Check if we've reached the maximum limit
-    if (allNewLifelogs.length >= CONFIG.maximumLimit) {
+    if (allNewLifelogs.length >= CONFIG.maxBacklog) {
       return {
         lifelogs: [],
         success: false,
@@ -403,13 +408,13 @@ async function fetchDescendingStrategy(
       };
     }
 
+    const fetchedSoFar = allNewLifelogs.length;
+    const maxToFetch = CONFIG.maximumLimit;
     // Handle pagination
     const paginationResult = handlePagination(
       meta,
-      lifelogsInBatch.length,
-      batchSize,
-      allNewLifelogs.length,
-      args.limit,
+      fetchedSoFar,
+      maxToFetch,
     );
 
     if (!paginationResult.continue) {
@@ -459,8 +464,12 @@ async function fetchAscendingStrategy(
   let lastCompletedDate: string | undefined = undefined;
 
   while (apiCalls < CONFIG.maxApiCalls) {
-    const batchSize = CONFIG.maxBatchSize;
-    const response = await makeApiRequest(args, cursor, batchSize);
+    const requestArgs: LifelogRequest = {
+      ...args,
+      cursor: cursor,
+      direction: 'asc',
+    };
+    const response = await makeApiRequest(requestArgs);
     apiCalls++;
 
     if (!response.ok) {
@@ -517,12 +526,12 @@ async function fetchAscendingStrategy(
     allNewLifelogs.push(...newLogs);
 
     // Handle pagination
+    const fetchedSoFar = allNewLifelogs.length;
+    const maxToFetch = CONFIG.maximumLimit;
     const paginationResult = handlePagination(
       meta,
-      lifelogsInBatch.length,
-      batchSize,
-      allNewLifelogs.length,
-      args.limit,
+      fetchedSoFar,
+      maxToFetch,
     );
 
     // Handle date increment when a day is complete
@@ -653,6 +662,7 @@ async function wellBehavedSyncAlgorithm(
   // Use ascending strategy to fetch all lifelogs from the start date forward
   const ascendingResult = await fetchAscendingStrategy(
     {
+      limit: CONFIG.maxBatchSize,
       date: dateToSync,
       direction: 'asc',
       includeMarkdown: true,
@@ -819,13 +829,13 @@ export const syncLimitless = internalAction({
     if (isFirstSync) {
       // Handle separately
       const args: LifelogRequest = {
+        limit: 1,
+        cursor: undefined,
         direction: 'asc',
         includeMarkdown: true,
         includeHeadings: true,
       };
-      const cursor = undefined;
-      const batchSize = 1;
-      const response = await makeApiRequest(args, cursor, batchSize);
+      const response = await makeApiRequest(args);
       if (!response.ok) {
         const error = await handleApiError(response);
         throw new Error(`Failed first sync: ${error.status} ${error.category}`);
@@ -879,6 +889,7 @@ export const syncLimitless = internalAction({
 
     // 3. Fetch lifelogs using the chosen strategy
     const fetchArgs: LifelogRequest = {
+      limit: CONFIG.maxBatchSize,
       direction: direction,
       includeMarkdown: true,
       includeHeadings: true,
@@ -1065,7 +1076,6 @@ export const sync = action({
 
 export const firstSync = internalAction({
   handler: async (ctx) => {
-    const MAX_API_CALLS = 50;
     // 1. Make sure no existing metadata exists
     const metadata = await ctx.runQuery(internal.metadata.readDocs, { limit: 1 });
     if (metadata.length > 0) {
@@ -1078,14 +1088,14 @@ export const firstSync = internalAction({
 
     // 2. Fetch all lifelogs in ascending order using pagination
     do {
-      const batchSize = 50;
       const args: LifelogRequest = cursor === undefined ? {
+        limit: CONFIG.maxBatchSize,
         direction: 'asc',
         includeMarkdown: true,
         includeHeadings: true,
       } : { cursor };
 
-      const response = await makeApiRequest(args, cursor, batchSize);
+      const response = await makeApiRequest(args);
       apiCalls++;
 
       if (!response.ok) {
@@ -1101,7 +1111,7 @@ export const firstSync = internalAction({
       cursor = meta.lifelogs?.nextCursor;
 
       // Break if no more pages or reached max API calls
-      if (!cursor || apiCalls >= MAX_API_CALLS) break;
+      if (!cursor || apiCalls >= CONFIG.maxApiCalls) break;
     } while (true);
 
     if (allLifelogs.length === 0) {
