@@ -6,57 +6,72 @@ You can port data easily from the Limitless pendant to a Convex database. All yo
 
 - **Scheduled Syncs**: Automate data transfers on your preferred schedule
 - **Full Lifelog Management**: Maintain ownership and control of your personal data
-- **Type Safety**: Seamlessly integrates with your existing TypeScript/Python applications
-- **Scalable Queries**: Handle large datasets with Convex's optimized query engine
+- **Type Safety**: Seamlessly integrates with TypeScript/Python applications
+- **Scalable Queries**: Handle large datasets with Convex's optimized engine
 - **Deployment Options**: Self-host or use Convex's cloud infrastructure
 
-## Quick Start
+## Installation
+```bash
+git clone https://github.com/TanGentleman/limitless-convex-db
+cd limitless-convex-db/convex-app
+npm install
+```
 
-1. Navigate to the project directory:
-   ```bash
-   cd convex-app
-   ```
+## Setup
+1. Set environment variables:
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-
-4. Obtain your Convex deployment URL from the console output:
-   ```
-   https://your-deployment.convex.cloud
-   ```
-
-5. Set environment variables (This is important!):
-   - Via [Convex Dashboard](https://dashboard.convex.dev/): Add `LIMITLESS_API_KEY`
-  
-   - Or via CLI:
+   **Required:**
    ```bash
    npx convex env set LIMITLESS_API_KEY=your_limitless_api_key
    ```
-   - Optionally add `SLACK_WEBHOOK_URL` to enable Slack notifications
-   - Optionally add `TIMEZONE` to make the timezone available to the backend, such as `America/Los_Angeles` (IANA timezone name).
 
-
-6. Run a manual sync to fetch your latest lifelogs from Limitless:
+   **Optional:**
    ```bash
-   npx convex run dashboard/sync:runSync
+   # For Slack notifications on sync completion
+   npx convex env set SLACK_WEBHOOK_URL=your_slack_webhook_url
+   
+   # For timezone-aware lifelog processing (defaults to UTC)
+   npx convex env set TIMEZONE="America/Los_Angeles"
    ```
 
+   > **Alternative**: You can also set these variables from the [Convex dashboard](https://dashboard.convex.dev/)
 
-For Python integration:
-   ```bash
-   cd python-src
-   pip install -r requirements.txt
-   python sync.py
-   ```
-   See `python-src/README.md` for more details.
+2. Start development server:
+```bash
+npm run dev
+```
 
+   > **Note**: Your deployment URL will be displayed in the console output (e.g., `https://your-deployment.convex.cloud`)
+
+## Usage
+
+### Node.js (Convex CLI)
+Run manual sync:
+```bash
+npx convex run dashboard/sync:runSync
+```
+
+### Python Scripts
+Powerful Python tools for syncing and querying data:
+
+| Script | Description |
+|--------|-------------|
+| [`sync.py`](python-src/sync.py) | Trigger/schedule data syncs |
+| [`fetch_latest_lifelog.py`](python-src/fetch_latest_lifelog.py) | Retrieve and display lifelogs |
+
+See [python-src/README.md](python-src/README.md) for full documentation and examples.
+
+## Python Quick Start
+```bash
+cd python-src
+pip install -r requirements.txt
+
+# Run immediate sync
+python sync.py --now
+
+# Fetch latest lifelog
+python fetch_latest_lifelog.py
+```
 
 ## Support
 
