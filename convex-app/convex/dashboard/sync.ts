@@ -801,6 +801,10 @@ export const syncLimitless = internalAction({
     // if metadata is not stale, return true (3 minutes)
     if (metadata._creationTime > Date.now() - CONFIG.staleTimeLimit) {
       console.log('Metadata is fresh. Skipping sync.');
+      const operation = metadataOperation('sync', 'Metadata is fresh. Skipping sync.', true);
+      await ctx.runMutation(internal.operations.createDocs, {
+        operations: [operation],
+      });
       return false;
     }
     const existingIdsSet = new Set<string>(metadata.lifelogIds);
