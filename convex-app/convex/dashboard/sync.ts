@@ -95,7 +95,7 @@ const CONFIG = {
   /** Maximum consecutive duplicate batches before stopping */
   maxDuplicateBatches: 3,
   /** Maximum API calls per sync operation */
-  maxApiCalls: 7,
+  maxApiCalls: 20,
   /** Whether to use descending strategy by default for non-first syncs */
   experimentalDescendingStrategy: false,
   /** Whether to use date parameter instead of start for ascending strategy */
@@ -1061,6 +1061,7 @@ export const sync = action({
 
 export const firstSync = internalAction({
   handler: async (ctx) => {
+    const MAX_API_CALLS = 50;
     // 1. Make sure no existing metadata exists
     const metadata = await ctx.runQuery(internal.metadata.readDocs, { limit: 1 });
     if (metadata.length > 0) {
@@ -1096,7 +1097,7 @@ export const firstSync = internalAction({
       cursor = meta.lifelogs?.nextCursor;
 
       // Break if no more pages or reached max API calls
-      if (!cursor || apiCalls >= CONFIG.maxApiCalls) break;
+      if (!cursor || apiCalls >= MAX_API_CALLS) break;
     } while (true);
 
     if (allLifelogs.length === 0) {
@@ -1130,7 +1131,10 @@ export const firstSync = internalAction({
     await ctx.runMutation(internal.operations.createDocs, {
       operations: [operation],
     });
-
+    // Send Slack notification
+    await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+      operation: 'sync',
+    });
     return true;
   },
 });
