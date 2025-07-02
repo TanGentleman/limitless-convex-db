@@ -231,16 +231,16 @@ function handlePagination(
   const nextCursor = meta.lifelogs?.nextCursor;
 
   // Stop if the API returned fewer results than requested
-  if (batchSize < requestedBatchSize) {
-    console.log(
-      `${MESSAGES.FEWER_ITEMS} (${batchSize}/${requestedBatchSize}).`,
-    );
-    return { continue: false, dateIsDone: true };
-  }
+  // if (batchSize < requestedBatchSize) {
+  //   console.log(
+  //     `${MESSAGES.FEWER_ITEMS} (${batchSize}/${requestedBatchSize}).`,
+  //   );
+  //   return { continue: false, dateIsDone: true };
+  // }
   // If there's no next cursor, then we're done.
   if (!nextCursor) {
     console.log(`${MESSAGES.NO_NEXT_CURSOR}. Ending fetch.`);
-    return { continue: false };
+    return { continue: false, dateIsDone: true };
   }
 
   // Check if we've reached the requested limit
@@ -529,7 +529,7 @@ async function fetchAscendingStrategy(
     if (
       CONFIG.experimentalAscDateIncrement &&
       args.date &&
-      !paginationResult.nextCursor
+      paginationResult.dateIsDone
     ) {
       lastCompletedDate = args.date;
       const nextDate = getNextDay(args.date);
