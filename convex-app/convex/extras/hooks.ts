@@ -604,12 +604,55 @@ export const adminWebhookNotification = action({
     }
 
     const manager = new WebhookManager();
-    await manager.sendNotification({
-      type: 'custom',
-      data: args.message,
-    }, ['slack']);
+    
+    // Format message for Slack
+    const slackBlocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `🔧 *Admin Notification*\n${args.message}`,
+        },
+      },
+    ];
+    
+    // Format message for Discord
+    const discordEmbed = {
+      embeds: [{
+        title: '🔧 Admin Notification',
+        description: args.message,
+        color: 0xFF6B35, // Orange color for admin notifications
+        timestamp: new Date().toISOString(),
+      }]
+    };
+    
+    const errors: string[] = [];
+    
+    // Send to Slack if configured
+    try {
+      await manager.sendNotification({
+        type: 'custom',
+        data: slackBlocks,
+      }, ['slack']);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      errors.push(`Slack: ${errorMessage}`);
+    }
+    
+    // Send to Discord if configured
+    try {
+      await manager.sendNotification({
+        type: 'custom',
+        data: discordEmbed,
+      }, ['discord']);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      errors.push(`Discord: ${errorMessage}`);
+    }
+    
     return {
-      success: true,
+      success: errors.length === 0,
+      errors: errors.length > 0 ? errors : undefined,
     };
   },
 });
