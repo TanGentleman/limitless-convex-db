@@ -269,7 +269,7 @@ class OperationFormatter extends BaseContentFormatter<Doc<'operations'>> {
     const operation = content.data;
     const timestamp = formatDate(new Date(operation._creationTime));
     const status = operation.success ? '✅ Success' : '❌ Failure';
-    const details = operation.data.error || operation.data.message || 'No details available';
+    const details = operation.data?.error || operation.data?.message || 'No details available';
     
     switch (provider) {
       case 'slack':
@@ -591,8 +591,14 @@ export const sendSlackNotification = internalAction({
   },
 });
 
+// ================================================================================
+// ADMIN WEBHOOK ACTION
+// ================================================================================
 
-// Uses process.env.ADMIN_PW
+/**
+ * Admin webhook notification action
+ * Uses process.env.ADMIN_PW for authentication
+ */
 export const adminWebhookNotification = action({
   args: {
     adminValidator: v.string(),
@@ -604,56 +610,70 @@ export const adminWebhookNotification = action({
       throw new Error('Invalid admin password');
     }
 
-    const manager = new WebhookManager();
-    
-    // Format message for Slack
-    const slackBlocks = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `🔧 *Admin Notification*\n${args.message}`,
-        },
-      },
-    ];
-    
-    // Format message for Discord
-    const discordEmbed = {
-      embeds: [{
-        title: '🔧 Admin Notification',
-        description: args.message,
-        color: 0xFF6B35, // Orange color for admin notifications
-        timestamp: new Date().toISOString(),
-      }]
-    };
-    
     const errors: string[] = [];
     
     // Send to Slack if configured
-    try {
-      await manager.sendNotification({
-        type: 'custom',
-        data: slackBlocks,
-      }, ['slack']);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      errors.push(`Slack: ${errorMessage}`);
+    if (process.env.SLACK_WEBHOOK_URL) {
+      try {
+        const slackProvider = new SlackWebhookProvider();
+        const slackPayload: WebhookPayload = {
+          provider: 'slack',
+          content: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `🔧 *Admin Notification*\n${args.message}`,
+              },
+            },
+          ],
+          metadata: {
+            timestamp: Date.now(),
+            severity: 'info',
+            source: 'admin-webhook',
+            fallbackText: `Admin Notification: ${args.message}`,
+          }
+        };
+        
+        await slackProvider.send(slackPayload);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`Slack: ${errorMessage}`);
+      }
     }
     
     // Send to Discord if configured
-    try {
-      await manager.sendNotification({
-        type: 'custom',
-        data: discordEmbed,
-      }, ['discord']);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      errors.push(`Discord: ${errorMessage}`);
+    if (process.env.DISCORD_WEBHOOK_URL) {
+      try {
+        const discordProvider = new DiscordWebhookProvider();
+        const discordPayload: WebhookPayload = {
+          provider: 'discord',
+          content: {
+            embeds: [{
+              title: '🔧 Admin Notification',
+              description: args.message,
+              color: 0xFF6B35, // Orange color for admin notifications
+              timestamp: new Date().toISOString(),
+            }]
+          },
+          metadata: {
+            timestamp: Date.now(),
+            severity: 'info',
+            source: 'admin-webhook',
+          }
+        };
+        
+        await discordProvider.send(discordPayload);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`Discord: ${errorMessage}`);
+      }
     }
     
     return {
       success: errors.length === 0,
       errors: errors.length > 0 ? errors : undefined,
+      message: errors.length === 0 ? 'Admin notification sent successfully' : 'Some notifications failed',
     };
   },
 });
