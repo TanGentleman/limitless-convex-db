@@ -50,7 +50,6 @@ class WebhookManager {
   private async sendToSlack(data: NotificationData): Promise<void> {
     const webhook = new IncomingWebhook(process.env.SLACK_WEBHOOK_URL!);
     const isTruncated = data.message.length > 2000;
-    const message = formatMarkdown(data.message, true, 2000);
     
     console.log('Sending to Slack:', {
       title: data.title,
@@ -61,14 +60,11 @@ class WebhookManager {
     
     // For simple messages, use a simpler format
     if (!data.fields || data.fields.length === 0) {
+      // Don't remove title for simple messages since they don't have embedded titles
+      const message = formatMarkdown(data.message, false, 2000);
+      
       const blocks: any[] = [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `*${data.title}*\n${message}`
-          }
-        }
+        SlackBlockHelpers.markdown(`*${data.title}*\n${message}`)
       ];
       
       // Add truncation notice if needed
@@ -81,6 +77,9 @@ class WebhookManager {
       console.log('Slack blocks (simple):', JSON.stringify(blocks, null, 2));
       await webhook.send({ blocks });
     } else {
+      // For complex messages (like lifelogs), remove title since it's embedded in markdown
+      const message = formatMarkdown(data.message, true, 2000);
+      
       // Use SlackMessageBuilder for complex messages with fields
       const blocks = SlackMessageBuilder.statusUpdate(
         data.title,
