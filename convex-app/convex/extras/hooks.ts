@@ -160,18 +160,14 @@ class WebhookManager {
       };
     });
 
-    // Create the embed object
-    const embed: any = {
+    // Create the embed object with proper structure
+    const embed = {
       title: title,
       description: description,
       color: colorMap[data.severity || 'info'],
+      fields: fields || [],
       timestamp: (data.timestamp || new Date()).toISOString()
     };
-
-    // Add fields only if they exist
-    if (fields && fields.length > 0) {
-      embed.fields = fields;
-    }
 
     // Add footer if content was truncated
     if (descriptionTruncated) {
