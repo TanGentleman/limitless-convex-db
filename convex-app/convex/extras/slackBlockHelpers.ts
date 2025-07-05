@@ -305,12 +305,15 @@ export class SlackBlockHelpers {
   }
 
   /**
-   * Create a markdown block
+   * Create a markdown block (actually a section block with markdown text)
    */
   static markdown(text: string): any {
     return {
-      type: 'markdown',
-      text
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text
+      }
     };
   }
 
