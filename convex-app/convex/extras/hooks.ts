@@ -599,6 +599,7 @@ export const adminWebhookNotification = action({
     message: v.string(),
   },
   handler: async (ctx, args) => {
+    console.log('Received admin webhook notification');
     if (args.adminValidator !== process.env.ADMIN_PW) {
       throw new Error('Invalid admin password');
     }
