@@ -147,22 +147,20 @@ class WebhookManager {
       title = title.substring(0, MAX_TITLE - 3) + '...';
     }
 
-    // Process fields with truncation (only include if fields exist and are not empty)
-    let fields: any[] | undefined;
-    if (data.fields && data.fields.length > 0) {
-      fields = data.fields.map(f => {
-        let value = f.value;
-        if (value.length > MAX_FIELD_VALUE) {
-          value = value.substring(0, MAX_FIELD_VALUE - 3) + '...';
-        }
-        return {
-          name: f.name,
-          value: value,
-          inline: f.inline || false
-        };
-      });
-    }
+    // Process fields with truncation
+    const fields = data.fields?.map(f => {
+      let value = f.value;
+      if (value.length > MAX_FIELD_VALUE) {
+        value = value.substring(0, MAX_FIELD_VALUE - 3) + '...';
+      }
+      return {
+        name: f.name,
+        value: value,
+        inline: f.inline || false
+      };
+    });
 
+    // Create the embed object
     const embed: any = {
       title: title,
       description: description,
@@ -170,7 +168,7 @@ class WebhookManager {
       timestamp: (data.timestamp || new Date()).toISOString()
     };
 
-    // Only add fields if they exist
+    // Add fields only if they exist
     if (fields && fields.length > 0) {
       embed.fields = fields;
     }
@@ -182,23 +180,16 @@ class WebhookManager {
 
     console.log('Discord embed:', JSON.stringify(embed, null, 2));
 
-    const payload = { embeds: [embed] };
-    console.log('Discord payload:', JSON.stringify(payload, null, 2));
-
     const response = await fetch(process.env.DISCORD_WEBHOOK_URL!, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ embeds: [embed] })
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Discord webhook failed:', {
-        status: response.status,
-        statusText: response.statusText,
-        errorText: errorText
-      });
-      throw new Error(`Discord webhook failed: ${response.status} - ${errorText}`);
+      console.error('Discord webhook failed:', response.status, errorText);
+      throw new Error(`Discord webhook failed: ${response.status}`);
     }
     
     console.log('Discord notification sent successfully');
