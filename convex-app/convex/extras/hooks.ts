@@ -160,8 +160,18 @@ class WebhookManager {
       };
     });
 
+    // Define Discord embed structure
+    interface DiscordEmbed {
+      title?: string;
+      description?: string;
+      color?: number;
+      fields?: Array<{ name: string; value: string; inline?: boolean }>;
+      timestamp?: string;
+      footer?: { text: string };
+    }
+
     // Create the embed object with proper structure
-    const embed = {
+    const embed: DiscordEmbed = {
       title: title,
       description: description,
       color: colorMap[data.severity || 'info'],
@@ -171,7 +181,9 @@ class WebhookManager {
 
     // Add footer if content was truncated
     if (descriptionTruncated) {
-      embed.description = embed.description + '\n\n⚠️ Message truncated due to length limits';
+      embed.footer = {
+        text: '⚠️ Message truncated due to length limits'
+      };
     }
 
     console.log('Discord embed:', JSON.stringify(embed, null, 2));
