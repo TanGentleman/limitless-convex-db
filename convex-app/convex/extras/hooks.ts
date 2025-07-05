@@ -64,14 +64,26 @@ class WebhookManager {
       const message = formatMarkdown(data.message, false, 2000);
       
       const blocks: any[] = [
-        SlackBlockHelpers.markdown(`*${data.title}*\n${message}`)
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*${data.title}*\n${message}`
+          }
+        }
       ];
       
       // Add truncation notice if needed
       if (isTruncated) {
-        blocks.push(SlackBlockHelpers.context([
-          SlackBlockHelpers.contextMarkdown('⚠️ _Message truncated due to length limits_')
-        ]));
+        blocks.push({
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: '⚠️ _Message truncated due to length limits_'
+            }
+          ]
+        });
       }
       
       console.log('Slack blocks (simple):', JSON.stringify(blocks, null, 2));
