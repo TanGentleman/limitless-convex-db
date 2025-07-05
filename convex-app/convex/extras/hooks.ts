@@ -51,22 +51,49 @@ class WebhookManager {
     const webhook = new IncomingWebhook(process.env.SLACK_WEBHOOK_URL!);
     const isTruncated = data.message.length > 2000;
     const message = formatMarkdown(data.message, true, 2000);
-    // Use SlackMessageBuilder for consistent formatting
-    const blocks = SlackMessageBuilder.statusUpdate(
-      data.title,
-      data.severity || 'info',
-      message,
-      data.fields?.map(f => ({ name: f.name, value: f.value }))
-    );
     
-    // Add truncation notice if needed
-    if (isTruncated) {
-      blocks.push(SlackBlockHelpers.context([
-        SlackBlockHelpers.contextMarkdown('⚠️ _Message truncated due to length limits_')
-      ]));
+    // For simple messages, use a simpler format
+    if (!data.fields || data.fields.length === 0) {
+      const blocks = [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*${data.title}*\n${message}`
+          }
+        }
+      ];
+      
+      // Add truncation notice if needed
+      if (isTruncated) {
+        blocks.push({
+          type: 'context',
+          text: {
+            type: 'mrkdwn',
+            text: '⚠️ _Message truncated due to length limits_'
+          }
+        });
+      }
+      
+      await webhook.send({ blocks });
+    } else {
+      // Use SlackMessageBuilder for complex messages with fields
+      const blocks = SlackMessageBuilder.statusUpdate(
+        data.title,
+        data.severity || 'info',
+        message,
+        data.fields?.map(f => ({ name: f.name, value: f.value }))
+      );
+      
+      // Add truncation notice if needed
+      if (isTruncated) {
+        blocks.push(SlackBlockHelpers.context([
+          SlackBlockHelpers.contextMarkdown('⚠️ _Message truncated due to length limits_')
+        ]));
+      }
+      
+      await webhook.send({ blocks });
     }
-    
-    await webhook.send({ blocks });
   }
 
   private async sendToDiscord(data: NotificationData): Promise<void> {
