@@ -1,7 +1,7 @@
 'use node';
 
 import { IncomingWebhook } from '@slack/webhook';
-import { internalAction } from '../_generated/server';
+import { action, internalAction } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { v } from 'convex/values';
 import { formatDate, formatMarkdown } from './utils';
@@ -588,5 +588,28 @@ export const sendSlackNotification = internalAction({
     }
     
     throw new Error('No content specified for notification');
+  },
+});
+
+
+// Uses process.env.ADMIN_PW
+export const adminWebhookNotification = action({
+  args: {
+    adminValidator: v.string(),
+    message: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (args.adminValidator !== process.env.ADMIN_PW) {
+      throw new Error('Invalid admin password');
+    }
+
+    const manager = new WebhookManager();
+    await manager.sendNotification({
+      type: 'custom',
+      data: args.message,
+    }, ['slack']);
+    return {
+      success: true,
+    };
   },
 });
