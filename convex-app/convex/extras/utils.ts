@@ -37,11 +37,13 @@ export const getNextDay = (
  *
  * @param markdown - The raw markdown content to format
  * @param removeTitle - Whether to remove the first line (typically the title)
+ * @param truncate_length - The maximum length of the formatted markdown string
  * @returns Formatted markdown string optimized for Slack
  */
 export const formatMarkdown = (
   markdown: string,
   removeTitle: boolean = false,
+  truncate_length: number = 2000,
 ): string => {
   // Remove title if requested
   const content = removeTitle
@@ -55,6 +57,7 @@ export const formatMarkdown = (
       .replace(/^#{1,3} (.*$)/gm, '*$1*')
       // Convert bullet points to Slack-friendly format
       .replace(/\n- /g, '\n• ')
+      .substring(0, truncate_length)
   );
 };
 

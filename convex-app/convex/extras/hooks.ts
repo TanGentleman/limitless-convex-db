@@ -49,14 +49,22 @@ export interface NotificationData {
 class WebhookManager {
   private async sendToSlack(data: NotificationData): Promise<void> {
     const webhook = new IncomingWebhook(process.env.SLACK_WEBHOOK_URL!);
-    
+    const isTruncated = data.message.length > 2000;
+    const message = formatMarkdown(data.message, true, 2000);
     // Use SlackMessageBuilder for consistent formatting
     const blocks = SlackMessageBuilder.statusUpdate(
       data.title,
       data.severity || 'info',
-      data.message,
+      message,
       data.fields?.map(f => ({ name: f.name, value: f.value }))
     );
+    
+    // Add truncation notice if needed
+    if (isTruncated) {
+      blocks.push(SlackBlockHelpers.context([
+        SlackBlockHelpers.contextMarkdown('⚠️ _Message truncated due to length limits_')
+      ]));
+    }
     
     await webhook.send({ blocks });
   }
@@ -69,17 +77,50 @@ class WebhookManager {
       error: 0xe74c3c
     };
 
-    const embed = {
-      title: data.title,
-      description: data.message,
-      color: colorMap[data.severity || 'info'],
-      fields: data.fields?.map(f => ({
+    // Discord embed limits
+    const MAX_DESCRIPTION = 4096;
+    const MAX_FIELD_VALUE = 1024;
+    const MAX_TITLE = 256;
+
+    // Truncate description if needed
+    let description = data.message;
+    let descriptionTruncated = false;
+    if (description.length > MAX_DESCRIPTION) {
+      description = description.substring(0, MAX_DESCRIPTION - 3) + '...';
+      descriptionTruncated = true;
+    }
+
+    // Truncate title if needed
+    let title = data.title;
+    if (title.length > MAX_TITLE) {
+      title = title.substring(0, MAX_TITLE - 3) + '...';
+    }
+
+    // Process fields with truncation
+    const fields = data.fields?.map(f => {
+      let value = f.value;
+      if (value.length > MAX_FIELD_VALUE) {
+        value = value.substring(0, MAX_FIELD_VALUE - 3) + '...';
+      }
+      return {
         name: f.name,
-        value: f.value,
+        value: value,
         inline: f.inline || false
-      })),
+      };
+    });
+
+    const embed = {
+      title: title,
+      description: description,
+      color: colorMap[data.severity || 'info'],
+      fields: fields,
       timestamp: (data.timestamp || new Date()).toISOString()
     };
+
+    // Add footer if content was truncated
+    if (descriptionTruncated) {
+      embed.description = embed.description + '\n\n⚠️ Message truncated due to length limits';
+    }
 
     const response = await fetch(process.env.DISCORD_WEBHOOK_URL!, {
       method: 'POST',
@@ -176,7 +217,7 @@ export const sendNotification = internalAction({
 });
 
 /**
- * Send a lifelog notification
+ * Send a lifelog notification with smart content handling
  */
 export const sendLifelogNotification = internalAction({
   args: {
@@ -195,13 +236,25 @@ export const sendLifelogNotification = internalAction({
     const lifelog = lifelogs[0];
     const duration = Math.round((lifelog.endTime - lifelog.startTime) / 1000 / 60);
     
+    // Create a preview of the markdown content
+    const markdown = lifelog.markdown || 'No content available';
+    const previewLength = 500; // Shorter preview for notifications
+    // const preview = markdown.length > previewLength 
+    //   ? markdown.substring(0, previewLength) + '...'
+    //   : markdown;
+    
+    // Format the preview to remove excessive markdown formatting
+    const cleanPreview = formatMarkdown(markdown, true, previewLength);
+    
     return await ctx.runAction(internal.extras.hooks.sendNotification, {
       title: '📝 New Lifelog Entry',
-      message: lifelog.title || 'Untitled Entry',
+      message: cleanPreview,
       severity: 'info',
       fields: [
+        { name: 'Title', value: lifelog.title || 'Untitled Entry', inline: false },
         { name: 'Duration', value: `${duration} minutes`, inline: true },
-        { name: 'Created', value: formatDate(new Date(lifelog.startTime)), inline: true }
+        { name: 'Created', value: formatDate(new Date(lifelog.startTime)), inline: true },
+        { name: 'Word Count', value: `~${Math.round(markdown.length / 5)} words`, inline: true }
       ],
       providers: args.providers
     });
