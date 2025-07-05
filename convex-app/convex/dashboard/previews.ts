@@ -51,7 +51,7 @@ export const getLastLifelog = action({
 
     // Optionally send a Slack notification
     if (args.sendNotification) {
-      await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+      await ctx.runAction(internal.extras.hooks.sendLifelogNotification, {
         lifelogId: lifelog._id,
       });
     }

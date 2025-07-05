@@ -1048,7 +1048,7 @@ export const runSync = internalAction({
       internal.dashboard.sync.syncLimitless,
     );
     if (args.sendNotification === true) {
-      await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+      await ctx.runAction(internal.extras.hooks.sendOperationNotification, {
         operation: 'sync',
       });
     }
@@ -1066,7 +1066,7 @@ export const sync = action({
       internal.dashboard.sync.syncLimitless
     )
     if (args.sendNotification === true) {
-      await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+      await ctx.runAction(internal.extras.hooks.sendOperationNotification, {
         operation: 'sync',
       });
     }
@@ -1146,7 +1146,7 @@ export const firstSync = internalAction({
       operations: [operation],
     });
     // Send Slack notification
-    await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
+    await ctx.runAction(internal.extras.hooks.sendOperationNotification, {
       operation: 'sync',
     });
     return true;

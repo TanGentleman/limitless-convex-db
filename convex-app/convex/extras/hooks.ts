@@ -6,9 +6,12 @@ import { internal } from '../_generated/api';
 import { v } from 'convex/values';
 import { formatDate, formatMarkdown } from './utils';
 import { Doc } from '../_generated/dataModel';
+import { SlackBlockHelpers, SlackMessageBuilder } from './slackBlockHelpers';
+
+
 
 // ================================================================================
-// CORE TYPES & INTERFACES
+// TYPE DEFINITIONS (ADDED FOR BETTER ORGANIZATION)
 // ================================================================================
 
 /**
@@ -19,7 +22,7 @@ export type WebhookProvider = 'slack' | 'discord' | 'custom';
 /**
  * Content types that can be sent via webhooks
  */
-export type WebhookContentType = 'lifelog' | 'operation' | 'alert' | 'summary' | 'custom';
+export type WebhookContentType = 'lifelog' | 'operation' | 'custom';
 
 /**
  * Severity levels for notifications
@@ -43,13 +46,23 @@ interface WebhookPayload {
 /**
  * Generic content structure for different types
  */
-interface WebhookContent<T = any> {
+interface WebhookContent {
   type: WebhookContentType;
-  data: T;
+  data: any; // We can't avoid any entirely, but we'll handle it in the formatter functions
   title?: string;
   severity?: NotificationSeverity;
   context?: Record<string, any>;
 }
+
+/**
+ * Result of a webhook notification attempt
+ */
+type WebhookResult = {
+  success: boolean;
+  message: string;
+  errors?: string[];
+  providers?: WebhookProvider[];
+};
 
 // ================================================================================
 // WEBHOOK PROVIDERS
@@ -148,288 +161,195 @@ class CustomWebhookProvider extends BaseWebhookProvider {
 }
 
 // ================================================================================
-// CONTENT FORMATTERS
+// CONTENT FORMATTERS (REFACTORED TO FUNCTIONAL STYLE)
 // ================================================================================
 
-/**
- * Abstract content formatter interface
- */
-abstract class BaseContentFormatter<T> {
-  abstract contentType: WebhookContentType;
-  abstract format(content: WebhookContent<T>, provider: WebhookProvider): any;
-}
+type FormatterFunction = (
+  data: any,
+  options: { title?: string; severity?: NotificationSeverity; context?: Record<string, any> }
+) => Record<string, any>;
 
-/**
- * Lifelog content formatter
- */
-class LifelogFormatter extends BaseContentFormatter<Doc<'lifelogs'>> {
-  contentType: WebhookContentType = 'lifelog';
-  
-  format(content: WebhookContent<Doc<'lifelogs'>>, provider: WebhookProvider): any {
-    const lifelog = content.data;
-    const markdown = lifelog.markdown || 'No content available';
+const formatters: Record<WebhookContentType, FormatterFunction> = {
+  lifelog: (lifelog, options) => {
     const timestamp = formatDate(new Date(lifelog.startTime));
-    const title = content.title || lifelog.title || 'Untitled Lifelog';
-    
-    switch (provider) {
-      case 'slack':
-        return this.formatForSlack(lifelog, title, timestamp, markdown);
-      case 'discord':
-        return this.formatForDiscord(lifelog, title, timestamp, markdown);
-      default:
-        return this.formatGeneric(lifelog, title, timestamp, markdown);
-    }
-  }
-  
-  private formatForSlack(lifelog: Doc<'lifelogs'>, title: string, timestamp: string, markdown: string) {
+    const markdown = lifelog.markdown || 'No content available';
     const processedMarkdown = formatMarkdown(markdown, true);
-    const maxContentLength = 2000;
-    const truncatedMarkdown = processedMarkdown.length > maxContentLength
-      ? processedMarkdown.substring(0, maxContentLength) + '...'
-      : processedMarkdown;
-    
-    return [
-      {
-        type: 'header',
-        text: {
-          type: 'plain_text',
-          text: '📝 Latest Lifelog Entry',
-          emoji: true,
-        },
-      },
-      {
-        type: 'section',
-        fields: [
-          {
-            type: 'mrkdwn',
-            text: `*Title:*\n${title}`,
-          },
-          {
-            type: 'mrkdwn',
-            text: `*Created:*\n${timestamp}`,
-          },
-        ],
-      },
-      {
-        type: 'divider',
-      },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: truncatedMarkdown,
-        },
-      },
-    ];
-  }
-  
-  private formatForDiscord(lifelog: Doc<'lifelogs'>, title: string, timestamp: string, markdown: string) {
-    const processedMarkdown = formatMarkdown(markdown, true);
-    const maxContentLength = 2000;
-    const truncatedMarkdown = processedMarkdown.length > maxContentLength
-      ? processedMarkdown.substring(0, maxContentLength) + '...'
-      : processedMarkdown;
+    const title = options.title || lifelog.title || 'Untitled Lifelog';
     
     return {
-      embeds: [{
-        title: '📝 Latest Lifelog Entry',
-        color: 0x5865F2, // Discord blue
-        fields: [
-          { name: 'Title', value: title, inline: true },
-          { name: 'Created', value: timestamp, inline: true },
-        ],
-        description: truncatedMarkdown,
-        timestamp: new Date(lifelog.startTime).toISOString(),
-      }]
-    };
-  }
-  
-  private formatGeneric(lifelog: Doc<'lifelogs'>, title: string, timestamp: string, markdown: string) {
-    return {
-      type: 'lifelog',
-      title,
-      timestamp,
-      content: markdown,
-      metadata: {
-        lifelogId: lifelog.lifelogId,
-        startTime: lifelog.startTime,
-        endTime: lifelog.endTime,
+      slack: [
+        SlackBlockHelpers.header('📝 Latest Lifelog Entry'),
+        SlackBlockHelpers.section(`*Title:* ${title}\n*Created:* ${timestamp}`, 'mrkdwn'),
+        SlackBlockHelpers.divider(),
+        SlackBlockHelpers.section(processedMarkdown.substring(0, 2000) + (processedMarkdown.length > 2000 ? '...' : ''), 'mrkdwn'),
+        SlackBlockHelpers.context([
+          SlackBlockHelpers.contextMarkdown(`💡 *Lifelog ID:* ${lifelog.lifelogId}`),
+          SlackBlockHelpers.contextMarkdown(`⏰ *Duration:* ${Math.round((lifelog.endTime - lifelog.startTime) / 1000 / 60)} minutes`)
+        ])
+      ],
+      discord: {
+        embeds: [{
+          title: '📝 Latest Lifelog Entry',
+          color: 0x5865F2,
+          fields: [
+            { name: 'Title', value: title, inline: true },
+            { name: 'Created', value: timestamp, inline: true },
+          ],
+          description: processedMarkdown.substring(0, 2000) + (processedMarkdown.length > 2000 ? '...' : ''),
+          timestamp: new Date(lifelog.startTime).toISOString(),
+        }]
+      },
+      generic: {
+        type: 'lifelog',
+        title,
+        timestamp,
+        content: markdown,
+        metadata: {
+          lifelogId: lifelog.lifelogId,
+          startTime: lifelog.startTime,
+          endTime: lifelog.endTime,
+        }
       }
     };
-  }
-}
-
-/**
- * Operation content formatter
- */
-class OperationFormatter extends BaseContentFormatter<Doc<'operations'>> {
-  contentType: WebhookContentType = 'operation';
+  },
   
-  format(content: WebhookContent<Doc<'operations'>>, provider: WebhookProvider): any {
-    const operation = content.data;
+  operation: (operation, options) => {
     const timestamp = formatDate(new Date(operation._creationTime));
     const status = operation.success ? '✅ Success' : '❌ Failure';
     const details = operation.data?.error || operation.data?.message || 'No details available';
     
-    switch (provider) {
-      case 'slack':
-        return this.formatForSlack(operation, timestamp, status, details);
-      case 'discord':
-        return this.formatForDiscord(operation, timestamp, status, details);
-      default:
-        return this.formatGeneric(operation, timestamp, status, details);
-    }
-  }
-  
-  private formatForSlack(operation: Doc<'operations'>, timestamp: string, status: string, details: string) {
-    return [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*📊 Operation Report*\n*Operation:* ${operation.operation}\n*Status:* ${status}\n*Timestamp:* ${timestamp}`,
-        },
-      },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*Details:*\n${details}`,
-        },
-      },
-    ];
-  }
-  
-  private formatForDiscord(operation: Doc<'operations'>, timestamp: string, status: string, details: string) {
     return {
-      embeds: [{
-        title: '📊 Operation Report',
-        color: operation.success ? 0x00FF00 : 0xFF0000,
-        fields: [
-          { name: 'Operation', value: operation.operation, inline: true },
-          { name: 'Status', value: status, inline: true },
-          { name: 'Timestamp', value: timestamp, inline: true },
-          { name: 'Details', value: details, inline: false },
-        ],
-        timestamp: new Date(operation._creationTime).toISOString(),
-      }]
-    };
-  }
-  
-  private formatGeneric(operation: Doc<'operations'>, timestamp: string, status: string, details: string) {
-    return {
-      type: 'operation',
-      operation: operation.operation,
-      success: operation.success,
-      timestamp,
-      details,
-      metadata: {
-        table: operation.table,
-        creationTime: operation._creationTime,
+      slack: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*📊 Operation Report*\n*Operation:* ${operation.operation}\n*Status:* ${status}\n*Timestamp:* ${timestamp}`,
+          },
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*Details:*\n${details}`,
+          },
+        },
+      ],
+      discord: {
+        embeds: [{
+          title: '📊 Operation Report',
+          color: operation.success ? 0x00FF00 : 0xFF0000,
+          fields: [
+            { name: 'Operation', value: operation.operation, inline: true },
+            { name: 'Status', value: status, inline: true },
+            { name: 'Timestamp', value: timestamp, inline: true },
+            { name: 'Details', value: details, inline: false },
+          ],
+          timestamp: new Date(operation._creationTime).toISOString(),
+        }]
+      },
+      generic: {
+        type: 'operation',
+        operation: operation.operation,
+        success: operation.success,
+        timestamp,
+        details,
+        metadata: {
+          table: operation.table,
+          creationTime: operation._creationTime,
+        }
       }
     };
-  }
-}
+  },
+  
+  custom: (data) => ({ 
+    slack: data, 
+    discord: data, 
+    generic: data 
+  })
+};
 
 // ================================================================================
-// WEBHOOK MANAGER
+// WEBHOOK MANAGER (UPDATED WITH RETURN TYPE)
 // ================================================================================
 
-/**
- * Central webhook manager that handles all providers and formatters
- */
-class WebhookManager {
-  private providers: Map<WebhookProvider, BaseWebhookProvider> = new Map();
-  private formatters: Map<WebhookContentType, BaseContentFormatter<any>> = new Map();
-  
-  constructor() {
-    this.initializeProviders();
-    this.initializeFormatters();
-  }
-  
-  private initializeProviders() {
-    this.providers.set('slack', new SlackWebhookProvider());
-    this.providers.set('discord', new DiscordWebhookProvider());
-    this.providers.set('custom', new CustomWebhookProvider());
-  }
-  
-  private initializeFormatters() {
-    this.formatters.set('lifelog', new LifelogFormatter());
-    this.formatters.set('operation', new OperationFormatter());
-  }
+const webhookManager = {
+  providers: {
+    slack: new SlackWebhookProvider(),
+    discord: new DiscordWebhookProvider(),
+    custom: new CustomWebhookProvider()
+  },
   
   getAvailableProviders(): WebhookProvider[] {
-    return Array.from(this.providers.keys()).filter(provider => 
-      this.providers.get(provider)?.isConfigured()
+    return (['slack', 'discord', 'custom'] as WebhookProvider[]).filter(
+      provider => this.providers[provider].isConfigured()
     );
-  }
+  },
   
-  async sendNotification<T>(
-    content: WebhookContent<T>,
-    providers: WebhookProvider[] = this.getAvailableProviders()
-  ): Promise<void> {
-    const formatter = this.formatters.get(content.type);
-    if (!formatter) {
-      throw new Error(`No formatter found for content type: ${content.type}`);
-    }
+  async sendNotification(
+    contentType: WebhookContentType,
+    data: any,
+    providers: WebhookProvider[],
+    options: { title?: string; severity?: NotificationSeverity; context?: Record<string, any> } = {}
+  ): Promise<WebhookResult> {
+    const formatter = formatters[contentType];
+    if (!formatter) throw new Error(`Unsupported content type: ${contentType}`);
     
+    const formatted = formatter(data, options);
     const errors: string[] = [];
+    const successfulProviders: WebhookProvider[] = [];
     
-    for (const providerName of providers) {
-      const provider = this.providers.get(providerName);
-      if (!provider) {
-        errors.push(`Provider ${providerName} not found`);
-        continue;
-      }
-      
-      if (!provider.isConfigured()) {
-        errors.push(`Provider ${providerName} not configured`);
-        continue;
-      }
-      
+    for (const provider of providers) {
       try {
-        const formattedContent = formatter.format(content, providerName);
-        const payload: WebhookPayload = {
-          provider: providerName,
-          content: formattedContent,
+        const providerInstance = this.providers[provider];
+        if (!providerInstance.isConfigured()) continue;
+        
+        await providerInstance.send({
+          provider,
+          content: formatted[provider] || formatted.generic,
           metadata: {
             timestamp: Date.now(),
-            severity: content.severity || 'info',
+            severity: options.severity || 'info',
             source: 'limitless-webhook-system',
-            contentType: content.type,
-            ...content.context
+            ...options.context
           }
-        };
-        
-        await provider.send(payload);
-        console.log(`Successfully sent notification to ${providerName}`);
+        });
+        successfulProviders.push(provider);
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        errors.push(`${providerName}: ${errorMessage}`);
-        console.error(`Failed to send notification to ${providerName}:`, error);
+        errors.push(`${provider}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
     
-    if (errors.length > 0 && errors.length === providers.length) {
-      throw new Error(`All webhook providers failed: ${errors.join(', ')}`);
-    }
+    return {
+      success: successfulProviders.length > 0,
+      message: successfulProviders.length > 0 
+        ? `Notification sent to ${successfulProviders.join(', ')}` 
+        : `All providers failed: ${errors.join(', ')}`,
+      errors: errors.length > 0 ? errors : undefined,
+      providers: successfulProviders,
+    };
   }
-}
+};
 
 // ================================================================================
-// MAIN WEBHOOK ACTION (GENERIC)
+// MAIN WEBHOOK ACTION (UPDATED WITH RETURN TYPE)
 // ================================================================================
 
 /**
- * Generic webhook action - the core of the new system
+ * Sends a webhook notification to specified providers
+ * @param {WebhookContentType} contentType - Type of content to send
+ * @param {any} data - Content data
+ * @param {WebhookProvider[]} [providers] - Providers to use (default: all configured)
+ * @param {string} [title] - Notification title
+ * @param {NotificationSeverity} [severity] - Notification severity
+ * @param {Record<string, any>} [context] - Additional context metadata
+ * @returns {Promise<WebhookResult>} Result of the notification attempt
  */
 export const sendWebhookNotification = internalAction({
   args: {
     contentType: v.union(
       v.literal('lifelog'),
       v.literal('operation'),
-      v.literal('alert'),
-      v.literal('summary'),
       v.literal('custom')
     ),
     data: v.any(),
@@ -447,27 +367,31 @@ export const sendWebhookNotification = internalAction({
     )),
     context: v.optional(v.record(v.string(), v.any())),
   },
-  handler: async (ctx, args) => {
-    const manager = new WebhookManager();
-    
-    const content: WebhookContent = {
-      type: args.contentType,
-      data: args.data,
-      title: args.title,
-      severity: args.severity,
-      context: args.context,
-    };
-    
-    await manager.sendNotification(content, args.providers);
+  handler: async (ctx, args): Promise<WebhookResult> => {
+    const result = await webhookManager.sendNotification(
+      args.contentType,
+      args.data,
+      args.providers || webhookManager.getAvailableProviders(),
+      {
+        title: args.title,
+        severity: args.severity,
+        context: args.context
+      }
+    );
+    return result;
   },
 });
 
 // ================================================================================
-// CONVENIENCE WRAPPER FUNCTIONS
+// CONVENIENCE WRAPPERS (UPDATED WITH RETURN TYPES)
 // ================================================================================
 
 /**
- * Send lifelog notification (wrapper around generic function)
+ * Sends a lifelog notification to specified providers
+ * @param {IdString<'lifelogs'>} lifelogId - ID of the lifelog to notify about
+ * @param {WebhookProvider[]} [providers] - Providers to use (default: all configured)
+ * @param {string} [title] - Custom notification title
+ * @returns {Promise<WebhookResult>} Result of the notification attempt
  */
 export const sendLifelogNotification = internalAction({
   args: {
@@ -479,7 +403,7 @@ export const sendLifelogNotification = internalAction({
     ))),
     title: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<WebhookResult> => {
     const lifelogs = await ctx.runQuery(internal.lifelogs.getDocsById, {
       ids: [args.lifelogId],
     });
@@ -488,18 +412,22 @@ export const sendLifelogNotification = internalAction({
       throw new Error(`Lifelog not found: ${args.lifelogId}`);
     }
     
-    await ctx.runAction(internal.extras.hooks.sendWebhookNotification, {
+    const result = await ctx.runAction(internal.extras.hooks.sendWebhookNotification, {
       contentType: 'lifelog',
       data: lifelogs[0],
       providers: args.providers,
       title: args.title,
       severity: 'info',
     });
+    return result;
   },
 });
 
 /**
- * Send operation notification (wrapper around generic function)
+ * Sends an operation notification to specified providers
+ * @param {'sync'|'create'|'read'|'update'|'delete'} operation - Operation type
+ * @param {WebhookProvider[]} [providers] - Providers to use (default: all configured)
+ * @returns {Promise<WebhookResult>} Result of the notification attempt
  */
 export const sendOperationNotification = internalAction({
   args: {
@@ -515,166 +443,69 @@ export const sendOperationNotification = internalAction({
       v.literal('discord'),
       v.literal('custom')
     ))),
-    limit: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<WebhookResult> => {
     const [operationLog] = await ctx.runQuery(
       internal.extras.tests.getLogsByOperation,
-      { operation: args.operation, limit: args.limit || 1 }
+      { operation: args.operation, limit: 1 }
     );
     
     if (!operationLog) {
       throw new Error(`No logs found for operation: ${args.operation}`);
     }
     
-    await ctx.runAction(internal.extras.hooks.sendWebhookNotification, {
+    const result = await ctx.runAction(internal.extras.hooks.sendWebhookNotification, {
       contentType: 'operation',
       data: operationLog,
       providers: args.providers,
       severity: operationLog.success ? 'success' : 'error',
     });
+    return result;
   },
 });
 
 // ================================================================================
-// BACKWARD COMPATIBILITY
+// ADMIN WEBHOOK ACTION (REFACTORED)
 // ================================================================================
 
 /**
- * Legacy Slack notification function for backward compatibility
- * @deprecated Use sendWebhookNotification instead
- */
-export const sendSlackNotification = internalAction({
-  args: {
-    blocks: v.optional(v.array(v.any())),
-    operation: v.optional(v.union(
-      v.literal('sync'),
-      v.literal('create'),
-      v.literal('read'),
-      v.literal('update'),
-      v.literal('delete'),
-    )),
-    lifelogId: v.optional(v.id('lifelogs')),
-  },
-  handler: async (ctx, args) => {
-    console.warn('sendSlackNotification is deprecated. Use sendWebhookNotification instead.');
-    
-    // Handle custom blocks (direct pass-through)
-    if (args.blocks) {
-      const manager = new WebhookManager();
-      await manager.sendNotification({
-        type: 'custom',
-        data: args.blocks,
-      }, ['slack']);
-      return;
-    }
-    
-    // Handle lifelog notification
-    if (args.lifelogId) {
-      await ctx.runAction(internal.extras.hooks.sendLifelogNotification, {
-        lifelogId: args.lifelogId,
-        providers: ['slack'],
-      });
-      return;
-    }
-    
-    // Handle operation notification
-    if (args.operation) {
-      await ctx.runAction(internal.extras.hooks.sendOperationNotification, {
-        operation: args.operation,
-        providers: ['slack'],
-      });
-      return;
-    }
-    
-    throw new Error('No content specified for notification');
-  },
-});
-
-// ================================================================================
-// ADMIN WEBHOOK ACTION
-// ================================================================================
-
-/**
- * Admin webhook notification action
- * Uses process.env.ADMIN_PW for authentication
+ * Sends an admin notification to all configured providers
+ * @param {string} adminValidator - Admin password for authentication
+ * @param {string} message - Notification message
+ * @returns {Promise<WebhookResult>} Result of the notification attempt
  */
 export const adminWebhookNotification = internalAction({
   args: {
     adminValidator: v.string(),
     message: v.string(),
   },
-  handler: async (ctx, args) => {
-    console.log('Received admin webhook notification');
+  handler: async (ctx, args): Promise<WebhookResult> => {
     if (args.adminValidator !== process.env.ADMIN_PW) {
-      throw new Error('Invalid admin password');
+      return {
+        success: false,
+        message: 'Invalid admin password',
+        errors: ['Authentication failed']
+      };
     }
 
-    const errors: string[] = [];
-    
-    // Send to Slack if configured
-    if (process.env.SLACK_WEBHOOK_URL) {
-      try {
-        const slackProvider = new SlackWebhookProvider();
-        const slackPayload: WebhookPayload = {
-          provider: 'slack',
-          content: [
-            {
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: `🔧 *Admin Notification*\n${args.message}`,
-              },
-            },
-          ],
-          metadata: {
-            timestamp: Date.now(),
-            severity: 'info',
-            source: 'admin-webhook',
-            fallbackText: `Admin Notification: ${args.message}`,
-          }
-        };
-        
-        await slackProvider.send(slackPayload);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        errors.push(`Slack: ${errorMessage}`);
+    return await webhookManager.sendNotification(
+      'custom',
+      {
+        slack: [SlackBlockHelpers.section(`🔧 *Admin Notification*\n${args.message}`)],
+        discord: {
+          embeds: [{
+            title: '🔧 Admin Notification',
+            description: args.message,
+            color: 0xFF6B35
+          }]
+        }
+      },
+      webhookManager.getAvailableProviders(),
+      {
+        severity: 'info',
+        context: { source: 'admin-webhook' }
       }
-    }
-    
-    // Send to Discord if configured
-    if (process.env.DISCORD_WEBHOOK_URL) {
-      try {
-        const discordProvider = new DiscordWebhookProvider();
-        const discordPayload: WebhookPayload = {
-          provider: 'discord',
-          content: {
-            embeds: [{
-              title: '🔧 Admin Notification',
-              description: args.message,
-              color: 0xFF6B35, // Orange color for admin notifications
-              timestamp: new Date().toISOString(),
-            }]
-          },
-          metadata: {
-            timestamp: Date.now(),
-            severity: 'info',
-            source: 'admin-webhook',
-          }
-        };
-        
-        await discordProvider.send(discordPayload);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        errors.push(`Discord: ${errorMessage}`);
-      }
-    }
-    
-    return {
-      success: errors.length === 0,
-      errors: errors.length > 0 ? errors : undefined,
-      message: errors.length === 0 ? 'Admin notification sent successfully' : 'Some notifications failed',
-    };
+    );
   },
 });
 
@@ -682,10 +513,189 @@ export const publicNotification = action({
   args: {
     message: v.string(),
   },
-  handler: async (ctx, args) => {
-    await ctx.runAction(internal.extras.hooks.adminWebhookNotification, {
+  handler: async (ctx, args): Promise<WebhookResult> => {
+    const result = await ctx.runAction(internal.extras.hooks.adminWebhookNotification, {
       adminValidator: process.env.ADMIN_PW!,
       message: args.message,
     });
+    return result;
   }
 })
+
+// ================================================================================
+// EXAMPLE USAGE OF SLACK BLOCK HELPERS (UPDATED TO USE webhookManager)
+// ================================================================================
+
+/**
+ * Example action demonstrating how to use SlackBlockHelpers to create rich messages
+ */
+export const sendRichSlackExample = internalAction({
+  args: {
+    userId: v.optional(v.string()),
+    channelId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Create a rich message using the SlackBlockHelpers
+    const richBlocks = [
+      // Header with emoji
+      SlackBlockHelpers.header('🚀 System Status Dashboard'),
+      
+      // Section with formatted text and fields
+      SlackBlockHelpers.section(
+        '*Welcome to the Limitless System Status!*\nHere\'s what\'s happening right now:',
+        'mrkdwn',
+        [
+          { type: 'mrkdwn', text: '*Active Users:*\n42' },
+          { type: 'mrkdwn', text: '*System Health:*\n✅ All Good' }
+        ]
+      ),
+      
+      // Divider
+      SlackBlockHelpers.divider(),
+      
+      // Rich text with various formatting
+      SlackBlockHelpers.richText([
+        SlackBlockHelpers.richTextSection([
+          SlackBlockHelpers.richTextElement('Latest activity: ', { bold: true }),
+          SlackBlockHelpers.richTextElement('Data sync completed successfully'),
+          SlackBlockHelpers.richTextEmoji('white_check_mark')
+        ])
+      ]),
+      
+      // Context with image and info
+      SlackBlockHelpers.context([
+        SlackBlockHelpers.contextImage(
+          'https://via.placeholder.com/16x16?text=📊',
+          'Dashboard icon'
+        ),
+        SlackBlockHelpers.contextMarkdown('Last updated: <!date^1640995200^{date_num} at {time}|Dec 31, 2024 at 12:00 PM>')
+      ]),
+      
+      // Interactive actions
+      SlackBlockHelpers.actions('dashboard_actions', [
+        SlackBlockHelpers.button('refresh_data', 'Refresh Data', 'refresh', 'primary'),
+        SlackBlockHelpers.button('view_logs', 'View Logs', 'logs'),
+        SlackBlockHelpers.staticSelect(
+          'quick_actions',
+          'Quick Actions...',
+          [
+            { text: 'Export Data', value: 'export' },
+            { text: 'Run Sync', value: 'sync' },
+            { text: 'View Analytics', value: 'analytics' }
+          ]
+        )
+      ])
+    ];
+    
+    // Add user mention if provided
+    if (args.userId) {
+      richBlocks.splice(1, 0, SlackBlockHelpers.richText([
+        SlackBlockHelpers.richTextSection([
+          SlackBlockHelpers.richTextElement('Hey '),
+          SlackBlockHelpers.richTextUser(args.userId),
+          SlackBlockHelpers.richTextElement(', check out this status update!')
+        ])
+      ]));
+    }
+    
+    // Add channel mention if provided
+    if (args.channelId) {
+      richBlocks.push(SlackBlockHelpers.context([
+        SlackBlockHelpers.contextMarkdown('Also posted in '),
+        SlackBlockHelpers.contextMarkdown(`<#${args.channelId}>`)
+      ]));
+    }
+    
+    // Send the rich message using webhookManager
+    const result = await webhookManager.sendNotification(
+      'custom',
+      richBlocks,
+      ['slack'],
+      { severity: 'info' }
+    );
+    
+    return result;
+  },
+});
+
+/**
+ * Example action for creating interactive forms in Slack
+ */
+export const sendInteractiveFormExample = internalAction({
+  args: {
+    formTitle: v.string(),
+    callbackId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Create an interactive form using helpers
+    const formBlocks = [
+      SlackBlockHelpers.header(`📋 ${args.formTitle}`),
+      SlackBlockHelpers.section('Please fill out the following information:'),
+      
+      // Text input
+      SlackBlockHelpers.input(
+        'Full Name',
+        SlackBlockHelpers.plainTextInput('name_input', 'Enter your full name...')
+      ),
+      
+      // Multi-line text input
+      SlackBlockHelpers.input(
+        'Description',
+        SlackBlockHelpers.plainTextInput('description_input', 'Describe your request...', true)
+      ),
+      
+      // Date picker
+      SlackBlockHelpers.input(
+        'Preferred Date',
+        SlackBlockHelpers.datepicker('date_input', 'Select a date...')
+      ),
+      
+      // Select dropdown
+      SlackBlockHelpers.input(
+        'Priority Level',
+        SlackBlockHelpers.staticSelect(
+          'priority_input',
+          'Choose priority...',
+          [
+            { text: 'Low', value: 'low' },
+            { text: 'Medium', value: 'medium' },
+            { text: 'High', value: 'high' },
+            { text: 'Urgent', value: 'urgent' }
+          ]
+        )
+      ),
+      
+      // Submit actions
+      SlackBlockHelpers.actions('form_actions', [
+        SlackBlockHelpers.button('submit_form', 'Submit', 'submit', 'primary'),
+        SlackBlockHelpers.button('cancel_form', 'Cancel', 'cancel')
+      ])
+    ];
+    
+    // Send the interactive form using webhookManager
+    const result = await webhookManager.sendNotification(
+      'custom',
+      formBlocks,
+      ['slack'],
+      { severity: 'info' }
+    );
+    
+    return result;
+  },
+});
+
+/**
+ * Public action to send rich Slack example (for testing)
+ */
+export const publicRichSlackExample = action({
+  args: {
+    userId: v.optional(v.string()),
+    channelId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.runAction(internal.extras.hooks.sendRichSlackExample, {
+      userId: args.userId,
+      channelId: args.channelId,
+    });
+  }
+});
