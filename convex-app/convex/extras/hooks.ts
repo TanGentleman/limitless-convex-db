@@ -203,6 +203,40 @@ class WebhookManager {
     console.log('Discord notification sent successfully');
   }
 
+  // Add new method for sending raw Slack blocks
+  async sendRawSlackBlocks(blocks: SlackBlock[]): Promise<WebhookResult> {
+    if (!process.env.SLACK_WEBHOOK_URL) {
+      return {
+        success: false,
+        message: 'Slack webhook URL not configured',
+        errors: ['Missing SLACK_WEBHOOK_URL environment variable'],
+        providers: []
+      };
+    }
+
+    const webhook = new IncomingWebhook(process.env.SLACK_WEBHOOK_URL);
+    
+    try {
+      console.log('Sending raw Slack blocks:', JSON.stringify(blocks, null, 2));
+      await webhook.send({ blocks });
+      console.log('Raw Slack notification sent successfully');
+      return {
+        success: true,
+        message: 'Slack notification sent',
+        providers: ['slack']
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Raw Slack notification failed:', errorMsg);
+      return {
+        success: false,
+        message: `Slack notification failed: ${errorMsg}`,
+        errors: [errorMsg],
+        providers: ['slack']
+      };
+    }
+  }
+
   async sendNotification(
     data: NotificationData,
     providers?: WebhookProvider[]
@@ -252,6 +286,28 @@ class WebhookManager {
 }
 
 const webhookManager = new WebhookManager();
+
+// ================================================================================
+// TYPE DEFINITIONS FOR SLACK BLOCK KIT
+// ================================================================================
+
+/**
+ * Type definitions for Slack Block Kit
+ * Simplified version of actual Slack types
+ */
+export type SlackBlock = 
+  | { type: 'section'; text?: SlackText; fields?: SlackText[]; accessory?: any }
+  | { type: 'divider' }
+  | { type: 'image'; image_url: string; alt_text: string }
+  | { type: 'actions'; elements: any[] }
+  | { type: 'context'; elements: SlackText[] }
+  | { type: 'header'; text: SlackText };
+
+export type SlackText = {
+  type: 'plain_text' | 'mrkdwn';
+  text: string;
+  emoji?: boolean;
+};
 
 // ================================================================================
 // SIMPLIFIED PUBLIC API
@@ -420,6 +476,41 @@ export const publicAdminNotification = action({
       message: args.message,
       severity: args.severity
     });
+  }
+});
+
+/**
+ * Public action to send raw Slack Block Kit notifications
+ * 
+ * This action allows external callers to send properly formatted Slack Block Kit messages.
+ * The blocks must conform to Slack's Block Kit specification.
+ * 
+ * @param blocks - Array of Slack Block Kit blocks (section, divider, context, etc.)
+ * @returns Promise<WebhookResult> - Result indicating success/failure and which providers were used
+ * 
+ * @example
+ * ```typescript
+ * await ctx.runAction(api.extras.hooks.publicSlackNotification, {
+ *   blocks: [
+ *     {
+ *       type: "section",
+ *       text: {
+ *         type: "mrkdwn",
+ *         text: "*Hello World*\nThis is a test message"
+ *       }
+ *     }
+ *   ]
+ * });
+ * ```
+ */
+export const publicSlackNotification = action({
+  args: {
+    blocks: v.array(v.any()) // Use v.any() since SlackBlock has complex union types
+  },
+  handler: async (ctx, args): Promise<WebhookResult> => {
+    // Cast to SlackBlock[] since we can't properly validate the complex union type at runtime
+    const blocks = args.blocks as SlackBlock[];
+    return await webhookManager.sendRawSlackBlocks(blocks);
   }
 });
 
