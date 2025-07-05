@@ -599,7 +599,7 @@ export const sendSlackNotification = internalAction({
  * Admin webhook notification action
  * Uses process.env.ADMIN_PW for authentication
  */
-export const adminWebhookNotification = action({
+export const adminWebhookNotification = internalAction({
   args: {
     adminValidator: v.string(),
     message: v.string(),
@@ -677,3 +677,15 @@ export const adminWebhookNotification = action({
     };
   },
 });
+
+export const publicNotification = action({
+  args: {
+    message: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.runAction(internal.extras.hooks.adminWebhookNotification, {
+      adminValidator: process.env.ADMIN_PW!,
+      message: args.message,
+    });
+  }
+})
