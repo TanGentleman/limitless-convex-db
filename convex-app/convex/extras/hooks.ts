@@ -52,9 +52,16 @@ class WebhookManager {
     const isTruncated = data.message.length > 2000;
     const message = formatMarkdown(data.message, true, 2000);
     
+    console.log('Sending to Slack:', {
+      title: data.title,
+      messageLength: data.message.length,
+      isTruncated,
+      hasFields: !!(data.fields && data.fields.length > 0)
+    });
+    
     // For simple messages, use a simpler format
     if (!data.fields || data.fields.length === 0) {
-      const blocks = [
+      const blocks: any[] = [
         {
           type: 'section',
           text: {
@@ -66,15 +73,12 @@ class WebhookManager {
       
       // Add truncation notice if needed
       if (isTruncated) {
-        blocks.push({
-          type: 'context',
-          text: {
-            type: 'mrkdwn',
-            text: '⚠️ _Message truncated due to length limits_'
-          }
-        });
+        blocks.push(SlackBlockHelpers.context([
+          SlackBlockHelpers.contextMarkdown('⚠️ _Message truncated due to length limits_')
+        ]));
       }
       
+      console.log('Slack blocks (simple):', JSON.stringify(blocks, null, 2));
       await webhook.send({ blocks });
     } else {
       // Use SlackMessageBuilder for complex messages with fields
@@ -92,8 +96,11 @@ class WebhookManager {
         ]));
       }
       
+      console.log('Slack blocks (complex):', JSON.stringify(blocks, null, 2));
       await webhook.send({ blocks });
     }
+    
+    console.log('Slack notification sent successfully');
   }
 
   private async sendToDiscord(data: NotificationData): Promise<void> {
@@ -108,6 +115,12 @@ class WebhookManager {
     const MAX_DESCRIPTION = 4096;
     const MAX_FIELD_VALUE = 1024;
     const MAX_TITLE = 256;
+
+    console.log('Sending to Discord:', {
+      title: data.title,
+      messageLength: data.message.length,
+      severity: data.severity || 'info'
+    });
 
     // Truncate description if needed
     let description = data.message;
@@ -149,6 +162,8 @@ class WebhookManager {
       embed.description = embed.description + '\n\n⚠️ Message truncated due to length limits';
     }
 
+    console.log('Discord embed:', JSON.stringify(embed, null, 2));
+
     const response = await fetch(process.env.DISCORD_WEBHOOK_URL!, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -156,8 +171,12 @@ class WebhookManager {
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Discord webhook failed:', response.status, errorText);
       throw new Error(`Discord webhook failed: ${response.status}`);
     }
+    
+    console.log('Discord notification sent successfully');
   }
 
   async sendNotification(
@@ -172,6 +191,12 @@ class WebhookManager {
     const errors: string[] = [];
     const successfulProviders: WebhookProvider[] = [];
 
+    console.log('Sending notification:', {
+      title: data.title,
+      targetProviders,
+      availableProviders
+    });
+
     for (const provider of targetProviders) {
       try {
         if (provider === 'slack' && process.env.SLACK_WEBHOOK_URL) {
@@ -182,11 +207,13 @@ class WebhookManager {
           successfulProviders.push(provider);
         }
       } catch (error) {
-        errors.push(`${provider}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`${provider} webhook failed:`, errorMsg);
+        errors.push(`${provider}: ${errorMsg}`);
       }
     }
 
-    return {
+    const result = {
       success: successfulProviders.length > 0,
       message: successfulProviders.length > 0 
         ? `Sent to ${successfulProviders.join(', ')}` 
@@ -194,6 +221,9 @@ class WebhookManager {
       errors: errors.length > 0 ? errors : undefined,
       providers: successfulProviders
     };
+
+    console.log('Notification result:', result);
+    return result;
   }
 }
 
