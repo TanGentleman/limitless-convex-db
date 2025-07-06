@@ -5,10 +5,29 @@ import { action, internalAction } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { v } from 'convex/values';
 import { formatDate, formatMarkdown } from './utils';
-import { SlackBlockHelpers, SlackMessageBuilder } from './slackBlockHelpers';
+import type {
+  Block,
+  KnownBlock,
+  MessageAttachment,
+  SectionBlock,
+  ContextBlock,
+  DividerBlock,
+  HeaderBlock,
+  ActionsBlock,
+  Button,
+  StaticSelect,
+  PlainTextElement,
+  MrkdwnElement,
+  ImageBlock,
+  RichTextBlock,
+  Option,
+  View,
+  HomeView,
+  ModalView
+} from '@slack/types';
 
 // ================================================================================
-// SIMPLIFIED TYPE DEFINITIONS
+// TYPE DEFINITIONS
 // ================================================================================
 
 /**
@@ -32,7 +51,7 @@ export interface WebhookResult {
 }
 
 /**
- * Simple notification data structure
+ * Simplified notification data structure
  */
 export interface NotificationData {
   title: string;
@@ -42,8 +61,330 @@ export interface NotificationData {
   timestamp?: Date;
 }
 
+/**
+ * Discord embed structure for type safety
+ */
+interface DiscordEmbed {
+  title?: string;
+  description?: string;
+  color?: number;
+  fields?: Array<{ name: string; value: string; inline?: boolean }>;
+  timestamp?: string;
+  footer?: { text: string };
+}
+
+/**
+ * Discord webhook payload
+ */
+interface DiscordWebhookPayload {
+  embeds: DiscordEmbed[];
+}
+
 // ================================================================================
-// SIMPLIFIED WEBHOOK MANAGER
+// SLACK BLOCK BUILDERS USING OFFICIAL TYPES
+// ================================================================================
+
+/**
+ * Modern Slack Block builders using official @slack/types
+ */
+export class SlackBlockBuilder {
+  /**
+   * Create a section block with proper typing
+   */
+  static section(options: {
+    text?: string;
+    textType?: 'mrkdwn' | 'plain_text';
+    fields?: Array<{ type: 'mrkdwn' | 'plain_text'; text: string }>;
+    accessory?: Button | StaticSelect | any;
+    blockId?: string;
+  }): SectionBlock {
+    const block: SectionBlock = {
+      type: 'section'
+    };
+
+    if (options.fields && options.fields.length > 0) {
+      block.fields = options.fields.map(field => ({
+        type: field.type,
+        text: field.text
+      }));
+    } else if (options.text) {
+      const textType = options.textType || 'mrkdwn';
+      if (textType === 'mrkdwn') {
+        block.text = {
+          type: 'mrkdwn',
+          text: options.text
+        } as MrkdwnElement;
+      } else {
+        block.text = {
+          type: 'plain_text',
+          text: options.text,
+          emoji: true
+        } as PlainTextElement;
+      }
+    }
+
+    if (options.accessory) {
+      block.accessory = options.accessory;
+    }
+
+    if (options.blockId) {
+      block.block_id = options.blockId;
+    }
+
+    return block;
+  }
+
+  /**
+   * Create a header block
+   */
+  static header(text: string, emoji: boolean = true): HeaderBlock {
+    return {
+      type: 'header',
+      text: {
+        type: 'plain_text',
+        text,
+        emoji
+      }
+    };
+  }
+
+  /**
+   * Create a divider block
+   */
+  static divider(): DividerBlock {
+    return {
+      type: 'divider'
+    };
+  }
+
+  /**
+   * Create a context block
+   */
+  static context(elements: Array<MrkdwnElement | PlainTextElement | ImageBlock>): ContextBlock {
+    return {
+      type: 'context',
+      elements
+    };
+  }
+
+  /**
+   * Create a context markdown element
+   */
+  static contextMarkdown(text: string): MrkdwnElement {
+    return {
+      type: 'mrkdwn',
+      text
+    };
+  }
+
+  /**
+   * Create an actions block
+   */
+  static actions(blockId: string, elements: Array<Button | StaticSelect>): ActionsBlock {
+    return {
+      type: 'actions',
+      block_id: blockId,
+      elements
+    };
+  }
+
+  /**
+   * Create a button element
+   */
+  static button(
+    actionId: string,
+    text: string,
+    value: string,
+    style?: 'primary' | 'danger'
+  ): Button {
+    const button: Button = {
+      type: 'button',
+      action_id: actionId,
+      text: {
+        type: 'plain_text',
+        text
+      },
+      value
+    };
+    
+    if (style) {
+      button.style = style;
+    }
+    
+    return button;
+  }
+
+  /**
+   * Create an image block
+   */
+  static image(
+    imageUrl: string,
+    altText: string,
+    title?: string,
+    blockId?: string
+  ): ImageBlock {
+    const imageBlock: ImageBlock = {
+      type: 'image',
+      image_url: imageUrl,
+      alt_text: altText
+    };
+    
+    if (title) {
+      imageBlock.title = {
+        type: 'plain_text',
+        text: title
+      };
+    }
+    
+    if (blockId) {
+      imageBlock.block_id = blockId;
+    }
+    
+    return imageBlock;
+  }
+}
+
+/**
+ * High-level message builders for common use cases
+ */
+export class SlackMessageBuilder {
+  /**
+   * Build a status update message using proper Slack types
+   */
+  static statusUpdate(
+    title: string,
+    status: 'success' | 'warning' | 'error' | 'info',
+    details: string,
+    additionalFields?: Array<{ name: string; value: string }>
+  ): KnownBlock[] {
+    const statusEmoji = {
+      success: '✅',
+      warning: '⚠️',
+      error: '❌',
+      info: 'ℹ️'
+    };
+
+    const blocks: KnownBlock[] = [
+      SlackBlockBuilder.header(`${statusEmoji[status]} ${title}`),
+      SlackBlockBuilder.section({ text: details })
+    ];
+
+    if (additionalFields && additionalFields.length > 0) {
+      blocks.push(SlackBlockBuilder.divider());
+      blocks.push(SlackBlockBuilder.section({ text: 'Additional Information:' }));
+
+      const fields = additionalFields.map(field => ({
+        type: 'mrkdwn' as const,
+        text: `*${field.name}:*\n${field.value}`
+      }));
+
+      blocks.push(SlackBlockBuilder.section({ fields }));
+    }
+
+    return blocks;
+  }
+  
+  /**
+   * Build a data summary message
+   */
+  static dataSummary(
+    title: string,
+    metrics: Array<{ label: string; value: string | number; trend?: 'up' | 'down' | 'neutral' }>,
+    timestamp?: Date
+  ): KnownBlock[] {
+    const blocks: KnownBlock[] = [
+      SlackBlockBuilder.header(`📊 ${title}`)
+    ];
+    
+    // Add metrics in pairs
+    for (let i = 0; i < metrics.length; i += 2) {
+      const fields: Array<{ type: 'mrkdwn'; text: string }> = [];
+      const metric1 = metrics[i];
+      const metric2 = metrics[i + 1];
+      
+      const trendEmoji = (trend?: string) => {
+        switch (trend) {
+          case 'up': return '📈';
+          case 'down': return '📉';
+          case 'neutral': return '➡️';
+          default: return '';
+        }
+      };
+      
+      fields.push({
+        type: 'mrkdwn',
+        text: `*${metric1.label}:*\n${metric1.value} ${trendEmoji(metric1.trend)}`
+      });
+      
+      if (metric2) {
+        fields.push({
+          type: 'mrkdwn',
+          text: `*${metric2.label}:*\n${metric2.value} ${trendEmoji(metric2.trend)}`
+        });
+      }
+      
+      blocks.push(SlackBlockBuilder.section({ fields }));
+    }
+    
+    if (timestamp) {
+      blocks.push(SlackBlockBuilder.context([
+        SlackBlockBuilder.contextMarkdown(`📅 Updated: ${timestamp.toLocaleString()}`)
+      ]));
+    }
+    
+    return blocks;
+  }
+  
+  /**
+   * Build an interactive approval message
+   */
+  static approvalRequest(
+    title: string,
+    description: string,
+    details: Array<{ label: string; value: string }>,
+    approveActionId: string = 'approve',
+    rejectActionId: string = 'reject'
+  ): KnownBlock[] {
+    const blocks: KnownBlock[] = [
+      SlackBlockBuilder.header(`🔍 ${title}`),
+      SlackBlockBuilder.section({ text: description }),
+      SlackBlockBuilder.divider()
+    ];
+    
+    // Add details
+    for (let i = 0; i < details.length; i += 2) {
+      const fields: Array<{ type: 'mrkdwn'; text: string }> = [];
+      const detail1 = details[i];
+      const detail2 = details[i + 1];
+      
+      fields.push({
+        type: 'mrkdwn',
+        text: `*${detail1.label}:*\n${detail1.value}`
+      });
+      
+      if (detail2) {
+        fields.push({
+          type: 'mrkdwn',
+          text: `*${detail2.label}:*\n${detail2.value}`
+        });
+      }
+      
+      blocks.push(SlackBlockBuilder.section({ fields }));
+    }
+    
+    // Add action buttons
+    blocks.push(SlackBlockBuilder.divider());
+    blocks.push(SlackBlockBuilder.actions('approval_actions', [
+      SlackBlockBuilder.button(approveActionId, 'Approve', 'approve', 'primary'),
+      SlackBlockBuilder.button(rejectActionId, 'Reject', 'reject', 'danger')
+    ]));
+    
+    return blocks;
+  }
+}
+
+// ================================================================================
+// WEBHOOK MANAGER WITH PROPER TYPING
 // ================================================================================
 
 class WebhookManager {
@@ -58,59 +399,38 @@ class WebhookManager {
       hasFields: !!(data.fields && data.fields.length > 0)
     });
     
-    // For simple messages, use a simpler format
+    let blocks: KnownBlock[];
+    
     if (!data.fields || data.fields.length === 0) {
-      // Don't remove title for simple messages since they don't have embedded titles
+      // Simple message format
       const message = formatMarkdown(data.message, false, 2000);
       
-      const blocks: any[] = [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `*${data.title}*\n${message}`
-          }
-        }
+      blocks = [
+        SlackBlockBuilder.section({
+          text: `*${data.title}*\n${message}`,
+          textType: 'mrkdwn'
+        })
       ];
-      
-      // Add truncation notice if needed
-      if (isTruncated) {
-        blocks.push({
-          type: 'context',
-          elements: [
-            {
-              type: 'mrkdwn',
-              text: '⚠️ _Message truncated due to length limits_'
-            }
-          ]
-        });
-      }
-      
-      console.log('Slack blocks (simple):', JSON.stringify(blocks, null, 2));
-      await webhook.send({ blocks });
     } else {
-      // For complex messages (like lifelogs), remove title since it's embedded in markdown
+      // Complex message with fields
       const message = formatMarkdown(data.message, true, 2000);
-      
-      // Use SlackMessageBuilder for complex messages with fields
-      const blocks = SlackMessageBuilder.statusUpdate(
+      blocks = SlackMessageBuilder.statusUpdate(
         data.title,
         data.severity || 'info',
         message,
         data.fields?.map(f => ({ name: f.name, value: f.value }))
       );
-      
-      // Add truncation notice if needed
-      if (isTruncated) {
-        blocks.push(SlackBlockHelpers.context([
-          SlackBlockHelpers.contextMarkdown('⚠️ _Message truncated due to length limits_')
-        ]));
-      }
-      
-      console.log('Slack blocks (complex):', JSON.stringify(blocks, null, 2));
-      await webhook.send({ blocks });
     }
     
+    // Add truncation notice if needed
+    if (isTruncated) {
+      blocks.push(SlackBlockBuilder.context([
+        SlackBlockBuilder.contextMarkdown('⚠️ _Message truncated due to length limits_')
+      ]));
+    }
+    
+    console.log('Slack blocks:', JSON.stringify(blocks, null, 2));
+    await webhook.send({ blocks });
     console.log('Slack notification sent successfully');
   }
 
@@ -160,17 +480,6 @@ class WebhookManager {
       };
     });
 
-    // Define Discord embed structure
-    interface DiscordEmbed {
-      title?: string;
-      description?: string;
-      color?: number;
-      fields?: Array<{ name: string; value: string; inline?: boolean }>;
-      timestamp?: string;
-      footer?: { text: string };
-    }
-
-    // Create the embed object with proper structure
     const embed: DiscordEmbed = {
       title: title,
       description: description,
@@ -188,10 +497,11 @@ class WebhookManager {
 
     console.log('Discord embed:', JSON.stringify(embed, null, 2));
 
+    const payload: DiscordWebhookPayload = { embeds: [embed] };
     const response = await fetch(process.env.DISCORD_WEBHOOK_URL!, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [embed] })
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) {
@@ -203,8 +513,10 @@ class WebhookManager {
     console.log('Discord notification sent successfully');
   }
 
-  // Add new method for sending raw Slack blocks
-  async sendRawSlackBlocks(blocks: SlackBlock[]): Promise<WebhookResult> {
+  /**
+   * Send raw Slack blocks with proper typing
+   */
+  async sendRawSlackBlocks(blocks: KnownBlock[]): Promise<WebhookResult> {
     if (!process.env.SLACK_WEBHOOK_URL) {
       return {
         success: false,
@@ -288,39 +600,11 @@ class WebhookManager {
 const webhookManager = new WebhookManager();
 
 // ================================================================================
-// TYPE DEFINITIONS FOR SLACK BLOCK KIT
-// ================================================================================
-
-/**
- * Type definitions for Slack Block Kit
- * Simplified version of actual Slack types
- */
-export type SlackBlock = 
-  | { type: 'section'; text?: SlackText; fields?: SlackText[]; accessory?: any }
-  | { type: 'divider' }
-  | { type: 'image'; image_url: string; alt_text: string }
-  | { type: 'actions'; elements: any[] }
-  | { type: 'context'; elements: SlackText[] }
-  | { type: 'header'; text: SlackText };
-
-export type SlackText = {
-  type: 'plain_text' | 'mrkdwn';
-  text: string;
-  emoji?: boolean;
-};
-
-// ================================================================================
-// SIMPLIFIED PUBLIC API
+// INTERNAL ACTIONS WITH PROPER TYPING
 // ================================================================================
 
 /**
  * Send a simple notification to webhooks
- * @param title - Notification title
- * @param message - Notification message
- * @param severity - Notification severity level
- * @param fields - Optional additional fields
- * @param providers - Target providers (defaults to all configured)
- * @returns Promise<WebhookResult>
  */
 export const sendNotification = internalAction({
   args: {
@@ -373,14 +657,8 @@ export const sendLifelogNotification = internalAction({
     const lifelog = lifelogs[0];
     const duration = Math.round((lifelog.endTime - lifelog.startTime) / 1000 / 60);
     
-    // Create a preview of the markdown content
     const markdown = lifelog.markdown || 'No content available';
-    const previewLength = 500; // Shorter preview for notifications
-    // const preview = markdown.length > previewLength 
-    //   ? markdown.substring(0, previewLength) + '...'
-    //   : markdown;
-    
-    // Format the preview to remove excessive markdown formatting
+    const previewLength = 500;
     const cleanPreview = formatMarkdown(markdown, true, previewLength);
     
     return await ctx.runAction(internal.extras.hooks.sendNotification, {
@@ -431,11 +709,11 @@ export const sendAdminNotification = internalAction({
 });
 
 // ================================================================================
-// PUBLIC ACTIONS
+// PUBLIC ACTIONS WITH PROPER TYPING
 // ================================================================================
 
 /**
- * Public action to send notifications (for external use)
+ * Public action to send notifications
  */
 export const publicNotification = action({
   args: {
@@ -480,36 +758,21 @@ export const publicAdminNotification = action({
 });
 
 /**
- * Public action to send raw Slack Block Kit notifications
+ * Public action to send properly typed Slack Block Kit notifications
  * 
  * This action allows external callers to send properly formatted Slack Block Kit messages.
- * The blocks must conform to Slack's Block Kit specification.
+ * The blocks must conform to Slack's Block Kit specification using official @slack/types.
  * 
- * @param blocks - Array of Slack Block Kit blocks (section, divider, context, etc.)
- * @returns Promise<WebhookResult> - Result indicating success/failure and which providers were used
- * 
- * @example
- * ```typescript
- * await ctx.runAction(api.extras.hooks.publicSlackNotification, {
- *   blocks: [
- *     {
- *       type: "section",
- *       text: {
- *         type: "mrkdwn",
- *         text: "*Hello World*\nThis is a test message"
- *       }
- *     }
- *   ]
- * });
- * ```
+ * @param blocks - Array of properly typed Slack Block Kit blocks
+ * @returns Promise<WebhookResult> - Result indicating success/failure
  */
 export const publicSlackNotification = action({
   args: {
-    blocks: v.array(v.any()) // Use v.any() since SlackBlock has complex union types
+    blocks: v.array(v.any()) // Runtime validation is complex for union types
   },
   handler: async (ctx, args): Promise<WebhookResult> => {
-    // Cast to SlackBlock[] since we can't properly validate the complex union type at runtime
-    const blocks = args.blocks as SlackBlock[];
+    // Cast to proper Slack types - runtime validation would be complex
+    const blocks = args.blocks as KnownBlock[];
     return await webhookManager.sendRawSlackBlocks(blocks);
   }
 });
@@ -519,32 +782,24 @@ export const publicSlackNotification = action({
 // ================================================================================
 
 /**
- * Quick success notification
+ * Quick notification builders with proper typing
  */
-export const notifySuccess = (title: string, message: string) => 
-  ({ title, message, severity: 'success' as const });
-
-/**
- * Quick error notification
- */
-export const notifyError = (title: string, message: string) => 
-  ({ title, message, severity: 'error' as const });
-
-/**
- * Quick info notification
- */
-export const notifyInfo = (title: string, message: string) => 
-  ({ title, message, severity: 'info' as const });
-
-/**
- * Quick warning notification
- */
-export const notifyWarning = (title: string, message: string) => 
-  ({ title, message, severity: 'warning' as const });
+export const NotificationHelpers = {
+  success: (title: string, message: string): NotificationData => 
+    ({ title, message, severity: 'success' }),
+  
+  error: (title: string, message: string): NotificationData => 
+    ({ title, message, severity: 'error' }),
+  
+  info: (title: string, message: string): NotificationData => 
+    ({ title, message, severity: 'info' }),
+  
+  warning: (title: string, message: string): NotificationData => 
+    ({ title, message, severity: 'warning' })
+};
 
 /**
  * Send an operation notification based on actual operation logs
- * Fetches the most recent operation log and reports its status
  */
 export const sendOperationNotification = internalAction({
   args: {
@@ -576,7 +831,6 @@ export const sendOperationNotification = internalAction({
       });
     }
 
-    // Map operation types to emojis
     const operationEmojis = {
       sync: '🔄',
       create: '➕',
@@ -589,7 +843,6 @@ export const sendOperationNotification = internalAction({
     const timestamp = formatDate(new Date(operationLog._creationTime));
     const details = operationLog.data?.error || operationLog.data?.message || 'No details available';
     
-    // Build notification with operation details
     return await ctx.runAction(internal.extras.hooks.sendNotification, {
       title: `${operationEmojis[args.operation]} ${args.operation.charAt(0).toUpperCase() + args.operation.slice(1)} Operation`,
       message: `Operation ${success ? 'completed successfully' : 'failed'}`,
@@ -604,3 +857,25 @@ export const sendOperationNotification = internalAction({
     });
   }
 });
+
+// Re-export official Slack types for external use
+// export type {
+//   Block,
+//   KnownBlock,
+//   MessageAttachment,
+//   SectionBlock,
+//   ContextBlock,
+//   DividerBlock,
+//   HeaderBlock,
+//   ActionsBlock,
+//   Button,
+//   StaticSelect,
+//   PlainTextElement,
+//   MrkdwnElement,
+//   ImageBlock,
+//   RichTextBlock,
+//   Option,
+//   View,
+//   HomeView,
+//   ModalView
+// } from '@slack/types';
