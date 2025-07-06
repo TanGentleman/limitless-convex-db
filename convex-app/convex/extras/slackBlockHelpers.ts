@@ -480,7 +480,7 @@ export class SlackBlockHelpers {
    * Create a section block
    */
   static section(
-    text: string,
+    text?: string,
     textType: 'mrkdwn' | 'plain_text' = 'mrkdwn',
     fields?: Array<{ type: 'mrkdwn' | 'plain_text'; text: string }>,
     accessory?: any,
@@ -490,15 +490,18 @@ export class SlackBlockHelpers {
       type: 'section'
     };
 
-    // A section block's `text` property is required unless `fields` are provided.
-    // They are mutually exclusive, so we only add one.
     if (fields && fields.length > 0) {
       sectionBlock.fields = fields;
-    } else {
+    } else if (text) {
       sectionBlock.text = {
         type: textType,
         text: text
       };
+    } else {
+      // This case is technically invalid for Slack, but we'll allow it
+      // to avoid runtime errors. A section must have `text` or `fields`.
+      // The calling function must ensure one is provided.
+      sectionBlock.text = { type: 'plain_text', text: ' ' };
     }
 
     if (accessory) {
@@ -651,7 +654,6 @@ export class SlackMessageBuilder {
 
     if (additionalFields && additionalFields.length > 0) {
       blocks.push(SlackBlockHelpers.divider());
-      // The "Additional Information" text needs to be in its own block.
       blocks.push(SlackBlockHelpers.section('Additional Information:'));
 
       const fields: Array<{ type: 'mrkdwn' | 'plain_text'; text: string }> =
@@ -660,9 +662,9 @@ export class SlackMessageBuilder {
           text: `*${field.name}:*\n${field.value}`
         }));
 
-      // Create a new section for the fields.
-      // The empty text will be ignored by the updated `section` helper.
-      blocks.push(SlackBlockHelpers.section('', 'mrkdwn', fields));
+      // A section with fields cannot have a top-level `text` element.
+      // Pass `undefined` to the `section` helper to ensure it's omitted.
+      blocks.push(SlackBlockHelpers.section(undefined, 'mrkdwn', fields));
     }
 
     return blocks;
