@@ -487,25 +487,28 @@ export class SlackBlockHelpers {
     blockId?: string
   ): any {
     const sectionBlock: any = {
-      type: 'section',
-      text: {
-        type: textType,
-        text
-      }
+      type: 'section'
     };
-    
-    if (fields) {
+
+    // A section block's `text` property is required unless `fields` are provided.
+    // They are mutually exclusive, so we only add one.
+    if (fields && fields.length > 0) {
       sectionBlock.fields = fields;
+    } else {
+      sectionBlock.text = {
+        type: textType,
+        text: text
+      };
     }
-    
+
     if (accessory) {
       sectionBlock.accessory = accessory;
     }
-    
+
     if (blockId) {
       sectionBlock.block_id = blockId;
     }
-    
+
     return sectionBlock;
   }
 
@@ -640,25 +643,28 @@ export class SlackMessageBuilder {
       error: '❌',
       info: 'ℹ️'
     };
-    
+
     const blocks = [
       SlackBlockHelpers.header(`${statusEmoji[status]} ${title}`),
       SlackBlockHelpers.section(details)
     ];
-    
-         if (additionalFields && additionalFields.length > 0) {
-       blocks.push(SlackBlockHelpers.divider());
-       const fields: Array<{ type: 'mrkdwn' | 'plain_text'; text: string }> = additionalFields.map(field => ({
-         type: 'mrkdwn',
-         text: `*${field.name}:*\n${field.value}`
-       }));
-       blocks.push(SlackBlockHelpers.section(
-         'Additional Information:',
-         'mrkdwn',
-         fields
-       ));
-     }
-    
+
+    if (additionalFields && additionalFields.length > 0) {
+      blocks.push(SlackBlockHelpers.divider());
+      // The "Additional Information" text needs to be in its own block.
+      blocks.push(SlackBlockHelpers.section('Additional Information:'));
+
+      const fields: Array<{ type: 'mrkdwn' | 'plain_text'; text: string }> =
+        additionalFields.map(field => ({
+          type: 'mrkdwn',
+          text: `*${field.name}:*\n${field.value}`
+        }));
+
+      // Create a new section for the fields.
+      // The empty text will be ignored by the updated `section` helper.
+      blocks.push(SlackBlockHelpers.section('', 'mrkdwn', fields));
+    }
+
     return blocks;
   }
   
