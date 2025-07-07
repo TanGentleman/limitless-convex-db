@@ -398,6 +398,99 @@ http.route({
   }),
 });
 
+/**
+ * Endpoint: /ping
+ * Method: POST
+ * Description: Send webhook notification
+ * Body (JSON):
+ *   - title: Notification title (required)
+ *   - message: Notification message (required)
+ *   - severity: Notification severity level (optional: 'info', 'success', 'warning', 'error')
+ *   - fields: Additional fields to include (optional array)
+ *   - providers: Notification providers (optional: array of 'slack', 'discord')
+ * Response: JSON with success status and any errors
+ */
+http.route({
+  path: '/ping',
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const body = await request.text();
+      let parsed: any;
+
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        return new Response(
+          JSON.stringify({
+            error: 'Invalid JSON body',
+          }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          },
+        );
+      }
+
+      const { title, message, severity, fields, providers } = parsed;
+
+      if (!title || !message) {
+        return new Response(
+          JSON.stringify({
+            error: 'Missing required parameters: title and message',
+          }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          },
+        );
+      }
+
+      const result = await ctx.runAction(internal.extras.hooks.sendNotification, {
+        title,
+        message,
+        severity,
+        fields,
+        providers,
+      });
+
+      return new Response(
+        JSON.stringify(result),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          },
+        },
+      );
+    } catch (error) {
+      console.error('Error in ping HTTP action:', error);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : 'An unexpected error occurred',
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        },
+      );
+    }
+  }),
+});
+
 // Add OPTIONS handlers for CORS support
 http.route({
   path: '/sync',
@@ -440,6 +533,22 @@ http.route({
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '86400',
+      },
+    });
+  }),
+});
+
+http.route({
+  path: '/ping',
+  method: 'OPTIONS',
+  handler: httpAction(async () => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Max-Age': '86400',
       },
