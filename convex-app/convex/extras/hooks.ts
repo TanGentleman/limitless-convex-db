@@ -265,9 +265,13 @@ export class SlackMessageBuilder {
     };
 
     const blocks: KnownBlock[] = [
-      SlackBlockBuilder.header(`${statusEmoji[status]} ${title}`),
-      SlackBlockBuilder.section({ text: details })
+      SlackBlockBuilder.header(`${statusEmoji[status]} ${title}`)
     ];
+
+    // Only add a section block for details if there are actual details
+    if (details && details.trim().length > 0) {
+      blocks.push(SlackBlockBuilder.section({ text: details }));
+    }
 
     if (additionalFields && additionalFields.length > 0) {
       blocks.push(SlackBlockBuilder.divider());
