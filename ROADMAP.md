@@ -63,6 +63,8 @@ Each branch is based on the previous one.
   answered 200; it now keeps the lifelogs it got, records a failed operation with the
   status and `retryAfter`, and fails the sync. Pages are 10 lifelogs (the documented
   maximum; was 25), because a short page is what marks a day done.
+- `limitless-convex-db-5`: CI (`npm ci`, typecheck, tests on Node 22 and 24, SHA-pinned
+  actions).
 
 ## Apply a branch upstream
 
@@ -74,7 +76,7 @@ git format-patch --relative=limitless-convex-db "$base"..origin/limitless-convex
 # in a clean upstream clone at 626480a
 git clone https://github.com/TanGentleman/limitless-convex-db && cd limitless-convex-db
 git am /tmp/lcdb/*.patch
-npm ci && npm run typecheck    # -2 and later
+npm ci && npm run typecheck && npm test    # -3 and later (typecheck from -2)
 ```
 
 ## Needs Tan
