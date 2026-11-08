@@ -73,7 +73,8 @@ export const createDocs = internalMutation({
  *
  * @param paginationOpts - Pagination options including cursor and number of items.
  * @param startTime - Optional minimum startTime (inclusive).
- * @param endTime - Optional maximum endTime (inclusive).
+ * @param endTime - Optional maximum startTime (exclusive).
+ * @param isStarred - Optional; true returns only starred lifelogs.
  * @param direction - Optional sort direction ('asc' or 'desc') based on startTime. Defaults to 'desc'.
  * @returns Paginated results containing lifelog documents matching the criteria and pagination metadata.
  */
@@ -83,6 +84,7 @@ export const paginatedDocs = internalQuery({
     startTime: v.optional(v.number()),
     endTime: v.optional(v.number()),
     direction: v.optional(v.union(v.literal('asc'), v.literal('desc'))),
+    isStarred: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     // Start building the query
@@ -91,53 +93,22 @@ export const paginatedDocs = internalQuery({
     const endTime = args.endTime;
     const direction = args.direction || defaultDirection;
 
-    // Apply time range filters if provided
-    // Apply time filters using the by_start_time index with appropriate range conditions
-    const timeFilteredQuery =
-      startTime !== undefined && endTime !== undefined
-        ? baseQuery.withIndex('by_start_time', (q) =>
-            q.gte('startTime', startTime).lte('startTime', endTime),
-          )
-        : startTime !== undefined
-        ? baseQuery.withIndex('by_start_time', (q) =>
-            q.gte('startTime', startTime),
-          )
-        : endTime !== undefined
-        ? baseQuery.withIndex('by_start_time', (q) =>
-            q.lte('startTime', endTime),
-          )
-        : baseQuery.withIndex('by_start_time');
-
-    // Apply sorting direction
-    const sortedQuery = timeFilteredQuery.order(direction);
-    // Get paginated results
-    const paginatedResults = await sortedQuery.paginate(args.paginationOpts);
-
-    // If endTime is specified, filter results efficiently
-    // Since lifelogs never overlap and we're already filtering by startTime ≤ endTime,
-    // at most one entry at the boundary could exceed the endTime limit
-    if (endTime !== undefined) {
-      if (direction === 'asc') {
-        // In ascending order, only the last entry might need filtering
-        const lastIndex = paginatedResults.page.length - 1;
-        if (
-          lastIndex >= 0 &&
-          paginatedResults.page[lastIndex].endTime > endTime
-        ) {
-          paginatedResults.page.pop();
-        }
-      } else {
-        // In descending order, only the first entry might need filtering
-        if (
-          paginatedResults.page.length > 0 &&
-          paginatedResults.page[0].endTime > endTime
-        ) {
-          paginatedResults.page.shift();
-        }
+    // Lifelogs are filtered by when they start: start <= startTime < end.
+    const timeFilteredQuery = baseQuery.withIndex('by_start_time', (q) => {
+      if (startTime !== undefined && endTime !== undefined) {
+        return q.gte('startTime', startTime).lt('startTime', endTime);
       }
-    }
+      if (startTime !== undefined) return q.gte('startTime', startTime);
+      if (endTime !== undefined) return q.lt('startTime', endTime);
+      return q;
+    });
 
-    return paginatedResults;
+    const orderedQuery = timeFilteredQuery.order(direction);
+    const sortedQuery =
+      args.isStarred === true
+        ? orderedQuery.filter((q) => q.eq(q.field('isStarred'), true))
+        : orderedQuery;
+    return await sortedQuery.paginate(args.paginationOpts);
   },
   // NOTE: Add "read operation when running in a mutation
 });
@@ -366,15 +337,16 @@ export const deleteDocs = internalMutation({
  *
  * @param query - The search string (can be multiple words).
  * @param paginationOpts - Pagination options (cursor, numItems, etc).
- * @param minCreationTime - (Optional) Only include lifelogs created after this timestamp (ms).
- * @param maxCreationTime - (Optional) Only include lifelogs created before this timestamp (ms).
+ * @param startTime - (Optional) Only lifelogs starting at or after this time (ms).
+ * @param endTime - (Optional) Only lifelogs starting before this time (ms).
+ * @param isStarred - (Optional) Only starred lifelogs.
  * @returns Paginated lifelog documents matching the search query and filters.
  *
  * Example usage:
  *   const results = await ctx.runQuery(internal.lifelogs.searchMarkdown, {
  *     query: "meeting notes",
  *     paginationOpts: { numItems: 10 },
- *     minCreationTime: Date.now() - 10 * 60 * 1000, // last 10 minutes
+ *     startTime: Date.now() - 10 * 60 * 1000, // last 10 minutes
  *   });
  */
 export const searchMarkdown = internalQuery({
@@ -383,64 +355,26 @@ export const searchMarkdown = internalQuery({
     paginationOpts: paginationOptsValidator,
     startTime: v.optional(v.number()),
     endTime: v.optional(v.number()),
+    isStarred: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    // Build the search index query
     const queryString = args.query.trim();
-    const start = args.startTime;
-    const end = args.endTime;
+    const { startTime, endTime, isStarred } = args;
     if (queryString.length === 0) {
-      console.warn("Empty search query provided, returning empty results.");
-      // Return empty pagination result
-      return {
-        page: [],
-        isDone: true,
-        continueCursor: null,
-      };
+      return { page: [], isDone: true, continueCursor: '' };
     }
-    // Use the search index for full text search
-    const searchQuery = ctx.db.query("lifelogs").withSearchIndex("search_markdown", q =>
-      q.search("markdown", queryString)
-    );
-
-    // Apply time range filters if provided
-    const timeFilteredQuery =
-      start !== undefined && end !== undefined
-      ? searchQuery.filter(q =>
-          q.gte(q.field("startTime"), start) &&
-          q.lte(q.field("endTime"), end)
-        )
-      : start !== undefined
-      ? searchQuery.filter(q =>
-          q.gte(q.field("startTime"), start)
-        )
-      : end !== undefined
-      ? searchQuery.filter(q =>
-          q.lte(q.field("endTime"), end)
-        )
-      : searchQuery;
-
-    // Paginate and return results
-    const results = await timeFilteredQuery.paginate(args.paginationOpts);
-
-    // If no results, return empty pagination result
-    if (results.page.length === 0) {
-      console.log("Empty search results for query:", args.query);
-      return {
-        page: [],
-        isDone: true,
-        continueCursor: null,
-      };
-    }
-
-    // Parse and return the pagination result
-    return {
-      page: results.page.map(page => page.markdown ?? ""),
-      isDone: results.isDone,
-      continueCursor: results.continueCursor,
-      splitCursor: results.splitCursor ?? undefined,
-      pageStatus: results.pageStatus ?? undefined,
-    };
+    return await ctx.db
+      .query('lifelogs')
+      .withSearchIndex('search_markdown', (q) =>
+        q.search('markdown', queryString),
+      )
+      .filter((q) =>
+        q.and(
+          startTime === undefined ? true : q.gte(q.field('startTime'), startTime),
+          endTime === undefined ? true : q.lt(q.field('startTime'), endTime),
+          isStarred === true ? q.eq(q.field('isStarred'), true) : true,
+        ),
+      )
+      .paginate(args.paginationOpts);
   },
 });
-

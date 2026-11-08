@@ -44,6 +44,16 @@ Each branch is based on the previous one.
   convex 1.49.0, moment-timezone 0.6.6, TypeScript 7.0.2; `@slack/webhook` replaced by a
   `fetch` POST, so no function needs the Node runtime. `package-lock.json` and
   `convex/_generated` committed; `npm run typecheck`.
+- `limitless-convex-db-3`: `/v1/lifelogs` and `/v1/search` follow `openapi.yml`, with
+  offline tests (`convex/http.test.ts`, convex-test). Fixed: `date` parsed MM-DD-YYYY
+  (spec: YYYY-MM-DD, both now accepted); `start`/`end` ignored `timezone`; a lifelog
+  crossing midnight was dropped from both days; default `direction` was `asc` (spec:
+  `desc`); `nextCursor` was never null, so clients paging to the end looped on an empty
+  page; `isStarred` was ignored; sync dropped `speakerName`, `speakerIdentifier`,
+  offsets and children from `contents`; bad parameters were a 500. `/v1/search` takes
+  `start`/`end` like `/v1/lifelogs` (it read integer `startTime`/`endTime`), ignored its
+  start filter when both were given, and returned bare markdown strings in
+  `data.results`; it now returns lifelog objects in `data.lifelogs`. `limit` is 1-100.
 
 ## Apply a branch upstream
 

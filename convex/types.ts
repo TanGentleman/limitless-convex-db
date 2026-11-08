@@ -117,6 +117,11 @@ export const convertToConvexFormat = (
         endTime: content.endTime
           ? new Date(content.endTime).getTime()
           : undefined,
+        startOffsetMs: content.startOffsetMs,
+        endOffsetMs: content.endOffsetMs,
+        children: content.children,
+        speakerName: content.speakerName,
+        speakerIdentifier: content.speakerIdentifier,
       })),
       startTime: new Date(log.startTime).getTime(),
       endTime: new Date(log.endTime).getTime(),
