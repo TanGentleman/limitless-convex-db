@@ -54,6 +54,15 @@ Each branch is based on the previous one.
   `start`/`end` like `/v1/lifelogs` (it read integer `startTime`/`endTime`), ignored its
   start filter when both were given, and returned bare markdown strings in
   `data.results`; it now returns lifelog objects in `data.lifelogs`. `limit` is 1-100.
+- `limitless-convex-db-4`: tests for the sync in `sync-docs.md` against a fake Limitless
+  API (`convex/sync.test.ts`): first sync, multi-page days, resume after a gap, no
+  duplicates on rerun, the 2-minute freshness skip, 429 and 5xx. Fixed: the first sync
+  on an empty database was skipped as "fresh" (it creates the metadata row it then
+  checks), and after that stored only the oldest lifelog; it now catches up in the same
+  run. A failed fetch (401, 429, 5xx) was recorded as a successful sync and `/sync`
+  answered 200; it now keeps the lifelogs it got, records a failed operation with the
+  status and `retryAfter`, and fails the sync. Pages are 10 lifelogs (the documented
+  maximum; was 25), because a short page is what marks a day done.
 
 ## Apply a branch upstream
 
