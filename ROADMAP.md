@@ -65,6 +65,22 @@ Each branch is based on the previous one.
   maximum; was 25), because a short page is what marks a day done.
 - `limitless-convex-db-5`: CI (`npm ci`, typecheck, tests on Node 22 and 24, SHA-pinned
   actions).
+- `limitless-convex-db-6`: README rewritten around the design (the sync problem, the
+  algorithm as a diagram, the drop-in API, search, limitations) and a search benchmark,
+  `scripts/bench-search.mjs`. Measured on a local backend (Docker `ubuntu:24.04`, 8
+  cores) with 10,000 synthetic lifelogs (142 MB), whole HTTP requests over localhost:
+  `/v1/search` p50 11 ms, p95 15-29 ms at `limit=10`; p50 22-28 ms, p95 33-91 ms at
+  `limit=50`. The "under 200 ms" claim holds locally; a cloud deployment wasn't measured.
+
+## Verified / not verified
+
+- Verified: the stack applies with `git am` to a fresh clone of upstream 626480a and
+  `npm ci`, typecheck and 22 offline tests pass there; the README's local commands
+  (`convex dev`, `env set`, `run`, the curls, the benchmark) against a local backend.
+- Not verified: any sync against the real `api.limitless.ai` (no key; it answers 401,
+  which the sync now records as a failure); the 10-per-page cap and the cursor on a
+  day's last page come from the docs and from notes in the code; Slack notifications;
+  cloud latency.
 
 ## Apply a branch upstream
 
@@ -72,7 +88,7 @@ Each branch is based on the previous one.
 # in a kranti-sandbox clone: everything after the import commit
 git fetch origin
 base=$(git log -1 --format=%H --grep='^Import limitless-convex-db upstream' origin/limitless-convex-db-1)
-git format-patch --relative=limitless-convex-db "$base"..origin/limitless-convex-db-1 -o /tmp/lcdb
+git format-patch --relative=limitless-convex-db "$base"..origin/limitless-convex-db-6 -o /tmp/lcdb
 # in a clean upstream clone at 626480a
 git clone https://github.com/TanGentleman/limitless-convex-db && cd limitless-convex-db
 git am /tmp/lcdb/*.patch
@@ -81,5 +97,10 @@ npm ci && npm run typecheck && npm test    # -3 and later (typecheck from -2)
 
 ## Needs Tan
 
+- Detach the fork? It is still a GitHub fork of `limitless-ai-inc/limitless-api-examples`;
+  after `-2` none of that code is left. Detaching makes it searchable and lets it hold
+  its own issues as a standalone repo. Also add a LICENSE (package.json says MIT).
+- Run one live sync with your key after applying, then `npm test` stays the safety net.
+  If the API now returns more than 10 per page, `CONFIG.maxBatchSize` can go back up.
 - Set `LIMITLESS_API_KEY` on the deployment: HTTP routes now refuse every request
   without it. Clients that called the public functions (`python-src/`) stop working.
