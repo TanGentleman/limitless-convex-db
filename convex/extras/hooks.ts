@@ -1,6 +1,3 @@
-'use node';
-import { IncomingWebhook } from '@slack/webhook';
-
 import { internalAction } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { v } from 'convex/values';
@@ -12,7 +9,20 @@ export const getWebhook = () => {
   if (!url) {
     throw new Error('SLACK_WEBHOOK_URL is not set');
   }
-  return new IncomingWebhook(url);
+  return {
+    send: async (message: { blocks: unknown[] }) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(message),
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Slack webhook failed: ${response.status} ${await response.text()}`,
+        );
+      }
+    },
+  };
 };
 
 // Define proper types for the content parameter

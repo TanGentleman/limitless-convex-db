@@ -38,6 +38,12 @@ Each branch is based on the previous one.
   CORS allows `X-API-Key`; OPTIONS answers `/v1/search`. The duplicate public
   `dashboard/sync:sync` is gone (`runSync` is the internal one). `python-src/` called
   the removed public functions; it is cut on `-2`.
+- `limitless-convex-db-2`: the repo is the Convex app. `convex-app/` moved to the root;
+  `python/`, `typescript/`, `notebooks/`, `assets/`, `convex-app/python-src/` and the
+  upstream README cut (`openapi.yml`, the Limitless spec the mirror follows, stays).
+  convex 1.49.0, moment-timezone 0.6.6, TypeScript 7.0.2; `@slack/webhook` replaced by a
+  `fetch` POST, so no function needs the Node runtime. `package-lock.json` and
+  `convex/_generated` committed; `npm run typecheck`.
 
 ## Apply a branch upstream
 
@@ -49,6 +55,7 @@ git format-patch --relative=limitless-convex-db "$base"..origin/limitless-convex
 # in a clean upstream clone at 626480a
 git clone https://github.com/TanGentleman/limitless-convex-db && cd limitless-convex-db
 git am /tmp/lcdb/*.patch
+npm ci && npm run typecheck    # -2 and later
 ```
 
 ## Needs Tan
