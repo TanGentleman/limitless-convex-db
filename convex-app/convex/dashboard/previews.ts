@@ -1,5 +1,5 @@
 import { v } from 'convex/values';
-import { query, action } from '../_generated/server';
+import { internalQuery, internalAction } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { Doc } from '../_generated/dataModel';
 import { PaginationResult } from 'convex/server';
@@ -7,7 +7,7 @@ import { PaginationResult } from 'convex/server';
 // Alias for lifelog document type
 type Lifelog = Doc<'lifelogs'>;
 
-export const getPreviewLifelog = query({
+export const getPreviewLifelog = internalQuery({
   handler: async (ctx) => {
     const lastLifelog = await ctx.db
       .query('lifelogs')
@@ -28,7 +28,7 @@ export const getPreviewLifelog = query({
  * @param sendNotification - If true, sends a Slack notification for the lifelog.
  * @returns The most recent lifelog document.
  */
-export const getLastLifelog = action({
+export const getLastLifelog = internalAction({
   args: {
     sendNotification: v.optional(v.boolean()),
   },

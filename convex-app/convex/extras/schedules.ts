@@ -1,7 +1,6 @@
 import { internal } from '../_generated/api';
-import { internalQuery, query } from '../_generated/server';
+import { internalAction, internalQuery } from '../_generated/server';
 import { v } from 'convex/values';
-import { action } from '../_generated/server';
 
 // Time window constants in milliseconds
 const TIME_WINDOW_BUFFER = 30000; // 15 seconds buffer
@@ -46,7 +45,7 @@ export const isSyncScheduled = internalQuery({
   },
 });
 
-export const listSchedules = query({
+export const listSchedules = internalQuery({
   args: {
     limit: v.optional(v.number()),
   },
@@ -70,7 +69,7 @@ export const listSchedules = query({
   },
 });
 
-export const scheduleSync = action({
+export const scheduleSync = internalAction({
   args: {
     seconds: v.optional(v.number()),
     minutes: v.optional(v.number()),

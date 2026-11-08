@@ -8,6 +8,51 @@ import { dateParamToTimestamp } from './dateUtils';
 
 const http = httpRouter();
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+};
+
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  }
+  return diff === 0;
+}
+
+/**
+ * Every route needs the same X-API-Key as the Limitless API (LIMITLESS_API_KEY).
+ * Returns an error response, or null when the key matches. Fails closed when
+ * LIMITLESS_API_KEY is unset.
+ */
+function checkApiKey(request: Request): Response | null {
+  const expected = process.env.LIMITLESS_API_KEY;
+  if (!expected) {
+    console.error('LIMITLESS_API_KEY is not set in env vars');
+    return jsonResponse({ error: 'Server is not configured' }, 500);
+  }
+  const apiKey = request.headers.get('X-API-Key');
+  if (!apiKey) {
+    return jsonResponse({ error: 'Unauthorized: Missing API key' }, 401);
+  }
+  if (!constantTimeEqual(apiKey, expected)) {
+    return jsonResponse({ error: 'Unauthorized: Invalid API key' }, 401);
+  }
+  return null;
+}
+
 /**
  * Parses URL parameters and returns both LifelogRequest and database query parameters
  * @param params URLSearchParams object containing the query parameters
@@ -78,12 +123,15 @@ function parseLifelogHttpParams(params: URLSearchParams): {
  * Endpoint: /sync
  * Method: GET
  * Description: Triggers a sync operation to fetch and process new Limitless data
+ * Authentication: Requires the X-API-Key header
  * Response: JSON with sync status, timestamp, and whether new entries were added
  */
 http.route({
   path: '/sync',
   method: 'GET',
-  handler: httpAction(async (ctx) => {
+  handler: httpAction(async (ctx, request) => {
+    const denied = checkApiKey(request);
+    if (denied) return denied;
     try {
       const isNewLifelogs = await ctx.runAction(
         internal.dashboard.sync.runSync,
@@ -127,7 +175,7 @@ http.route({
  * Endpoint: /v1/lifelogs
  * Method: GET
  * Description: Retrieves lifelogs with optional filtering and pagination
- * Authentication: Requires valid API key in Authorization header
+ * Authentication: Requires the X-API-Key header
  * Query Parameters:
  *   - timezone: User's timezone for date calculations
  *   - date: Specific date to filter by
@@ -145,42 +193,8 @@ http.route({
   method: 'GET',
   handler: httpAction(async (ctx, request) => {
     try {
-      // Pre-req, user needs LIMITLESS_API_KEY set in env vars
-      if (!process.env.LIMITLESS_API_KEY) {
-        throw new Error('LIMITLESS_API_KEY is not set in env vars');
-      }
-
-      // Verify API key from X-API-Key header or Authorization header
-      const apiKey = request.headers.get('X-API-Key');
-
-      if (!apiKey) {
-        return new Response(
-          JSON.stringify({
-            error: 'Unauthorized: Missing API key',
-          }),
-          {
-            status: 401,
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-            },
-          },
-        );
-      }
-      if (apiKey !== process.env.LIMITLESS_API_KEY) {
-        return new Response(
-          JSON.stringify({
-            error: 'Unauthorized: Invalid API key',
-          }),
-          {
-            status: 401,
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-            },
-          },
-        );
-      }
+      const denied = checkApiKey(request);
+      if (denied) return denied;
 
       // Parse query parameters from URL
       const url = new URL(request.url);
@@ -234,9 +248,7 @@ http.route({
           status: 200,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            ...CORS_HEADERS,
           },
         },
       );
@@ -262,7 +274,7 @@ http.route({
  * Endpoint: /v1/search
  * Method: GET
  * Description: Retrieves paginated lifelogs using full text search.
- * Authentication: Requires valid API key in Authorization header
+ * Authentication: Requires the X-API-Key header
  * Query Parameters:
  *   - query: Search query string
  *   - start: Start timestamp for range filtering
@@ -276,42 +288,8 @@ http.route({
   method: 'GET',
   handler: httpAction(async (ctx, request) => {
     try {
-      // Pre-req, user needs LIMITLESS_API_KEY set in env vars
-      if (!process.env.LIMITLESS_API_KEY) {
-        throw new Error('LIMITLESS_API_KEY is not set in env vars');
-      }
-
-      // Verify API key from X-API-Key header or Authorization header
-      const apiKey = request.headers.get('X-API-Key');
-
-      if (apiKey === null) {
-        return new Response(
-          JSON.stringify({
-            error: 'Unauthorized: Missing API key',
-          }),
-          {
-            status: 401,
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-            },
-          },
-        );
-      }
-      if (apiKey !== process.env.LIMITLESS_API_KEY) {
-        return new Response(
-          JSON.stringify({
-            error: 'Unauthorized: Invalid API key',
-          }),
-          {
-            status: 401,
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-            },
-          },
-        );
-      }
+      const denied = checkApiKey(request);
+      if (denied) return denied;
 
       // Parse query parameters from URL
       const url = new URL(request.url);
@@ -374,9 +352,7 @@ http.route({
           status: 200,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            ...CORS_HEADERS,
           },
         },
       );
@@ -399,52 +375,17 @@ http.route({
 });
 
 // Add OPTIONS handlers for CORS support
-http.route({
-  path: '/sync',
-  method: 'OPTIONS',
-  handler: httpAction(async () => {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Max-Age': '86400',
-      },
-    });
-  }),
-});
-
-http.route({
-  path: '/v1/lifelogs',
-  method: 'OPTIONS',
-  handler: httpAction(async () => {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Max-Age': '86400',
-      },
-    });
-  }),
-});
-
-http.route({
-  path: '/search',
-  method: 'OPTIONS',
-  handler: httpAction(async () => {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Max-Age': '86400',
-      },
-    });
-  }),
-});
+for (const path of ['/sync', '/v1/lifelogs', '/v1/search']) {
+  http.route({
+    path,
+    method: 'OPTIONS',
+    handler: httpAction(async () => {
+      return new Response(null, {
+        status: 204,
+        headers: { ...CORS_HEADERS, 'Access-Control-Max-Age': '86400' },
+      });
+    }),
+  });
+}
 
 export default http;

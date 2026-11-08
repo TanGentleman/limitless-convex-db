@@ -1,7 +1,6 @@
 import { v } from 'convex/values';
-import { action, internalMutation, internalQuery } from '../_generated/server';
+import { internalAction, internalMutation, internalQuery } from '../_generated/server';
 import { internal } from '../_generated/api';
-import { internalAction } from '../_generated/server';
 import {
   LimitlessLifelog,
   convertToConvexFormat,
@@ -1053,23 +1052,6 @@ export const runSync = internalAction({
       });
     }
 
-    return isNewLifelogs;
-  },
-});
-
-export const sync = action({
-  args: {
-    sendNotification: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args): Promise<boolean> => {
-    const isNewLifelogs = await ctx.runAction(
-      internal.dashboard.sync.syncLimitless
-    )
-    if (args.sendNotification === true) {
-      await ctx.runAction(internal.extras.hooks.sendSlackNotification, {
-        operation: 'sync',
-      });
-    }
     return isNewLifelogs;
   },
 });
