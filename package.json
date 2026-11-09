@@ -1,0 +1,26 @@
+{
+  "name": "limitless-convex-db",
+  "version": "1.0.1",
+  "private": true,
+  "description": "A Convex mirror of the Limitless lifelog API with a resumable sync",
+  "author": "TanGentleman",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "convex dev",
+    "typecheck": "tsc -p convex",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "convex": "^1.49.0",
+    "moment-timezone": "^0.6.6"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "@types/node": "^24.19.2",
+    "convex-test": "^0.0.67",
+    "prettier": "^3.9.10",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

@@ -1,130 +1,130 @@
-# Limitless Pendant + Convex = 🔥
+# limitless-convex-db
 
-Welcome! This repository showcases how to use Convex as a database and backend for the Limitless Pendant.
-- It's your personal data, so you can also self-host it :D
-- Reference implementations in TypeScript and Python for building on top of your apps
-- Full replacement for the Limitless API, simply replace the URL when requesting lifelogs from limitless.ai to your deployed Convex `*.site` URL.
+Your Limitless pendant's lifelogs, mirrored into a Convex deployment you own. A
+scheduled sync copies them from the Limitless API without wasting its rate limit,
+`/v1/lifelogs` serves them back in the same shape as the official endpoint (so existing
+clients only change the base URL), and `/v1/search` adds full-text search over every
+transcript.
 
-Check out `convex-app/README.md` to get set up.
+## Why the sync is the hard part
 
-Feel free to use this repo as a starting point, create an issue, or message me directly! --`Tan`
+The Limitless API pages through lifelogs with a cursor, filters by calendar `date`, and
+allows 180 requests a minute. A naive mirror breaks in ordinary use:
 
----
+- **Descending ("newest first") syncs** must reach the last known lifelog in one go. After
+  a month away, that can be hundreds of requests.
+- **Ascending syncs by date** can't tell whether a day is finished or whether the next
+  days are empty, so they either refetch or miss lifelogs.
+- **Interrupted syncs** (rate limit, outage, bad key) must neither lose progress nor
+  record success.
 
-**Note:** The content below remains unchanged from the upstream repository.
-  <h1>
-    <img src="assets/limitless-logo.svg" alt="API Icon" width="32" height="32">
-    Limitless Developer API: Code Examples
-  </h1>
+[`sync-docs.md`](sync-docs.md) is the original design note. The algorithm it arrives at,
+in `convex/dashboard/sync.ts`:
 
-This repository contains examples demonstrating how to use our API endpoints, featuring realistic, LLM-powered use cases.
+```mermaid
+flowchart TD
+    A[GET /sync, a schedule or npx convex run] --> B{Synced in the last 2 min?}
+    B -- yes --> Z[Skip: no API calls]
+    B -- no --> C{Empty database?}
+    C -- yes --> D["Fetch the oldest lifelog (1 call)"] --> E
+    C -- no --> E[date = day of the newest stored lifelog]
+    E --> F["Newest lifelog on that date already stored? (1 call, desc)"]
+    F -- yes --> G[date = next day]
+    F -- no --> H
+    G --> H["Page through the date ascending, 10 per call, skipping known IDs"]
+    H -- "short page: day done" --> I{date is today?}
+    I -- no --> G
+    I -- yes --> S[Save lifelogs + progress, record success]
+    H -- "401 / 429 / 5xx" --> R[Save what was fetched, record the failure, fail the sync]
+    H -- "50 calls used" --> S
+```
 
-## 😍 Contributing
+So a sync costs one or two calls when nothing is new, at most 50 calls per run, and the
+next run resumes from the newest stored lifelog. Known IDs are never stored twice.
 
-Share your examples with the community! Pull requests are welcome. We'll review PRs and potentially merge the best use cases (with credit, of course).
+## Setup
 
-## 📚 Table of Contents
-
-- [Getting Started](#getting-started)
-- [Authentication](#authentication)
-- [Examples](#examples)
-- [Documentation](#documentation)
-- [Support](#support)
-
-## 🚀 Getting Started
-
-To use these examples, you'll need:
-
-- [An API key](https://limitless.ai/developers) from Limitless
-- [Python 3](https://realpython.com/installing-python/) and virtualenv (you can install virtualenv with `pipx install virtualenv`)
-- Basic understanding of REST APIs
-
-You can also use our [OpenAPI spec](openapi.yml) to generate client libraries in your language of choice.
-
-## 🔐 Authentication
-
-All API requests require authentication using an API key. Include it in the header of your requests:
-
-### Installation
+Requires Node 22+ and a [Limitless API key](https://www.limitless.ai/developers).
 
 ```bash
-cd examples
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+git clone https://github.com/TanGentleman/limitless-convex-db
+cd limitless-convex-db
+npm ci
+npm run typecheck && npm test    # offline; no deployment or API key needed
+npx convex dev                   # log in or run locally; pushes the functions and keeps watching
 ```
 
-## 🛳️ Examples
-
-### Example cURL
+In another terminal:
 
 ```bash
-curl -X GET "https://api.limitless.ai/v1/<endpoint>" \
-     -H "X-API-KEY: YOUR_API_KEY"
+npx convex env set LIMITLESS_API_KEY <your Limitless API key>
+npx convex run dashboard/sync:runSync                     # one sync now
+npx convex run extras/schedules:scheduleSync '{"hours": 6}'   # one sync in 6 hours
 ```
 
-### Chart Usage
+Optional environment variables: `SLACK_WEBHOOK_URL` posts a summary after `/sync`, and
+`TIMEZONE` (default UTC) formats dates in those messages.
 
-See the `notebooks/` folder for examples.
+`npx convex dev --local` runs the open-source backend on your machine instead of the
+cloud. It needs glibc 2.39 or newer; on older Linux, run the backend binary in an
+`ubuntu:24.04` container.
 
-![Chart Example](./assets/chart.png)
+## HTTP API
 
-### Export Markdown
+Every route on `https://<deployment>.convex.site` requires `X-API-Key: <the same
+Limitless API key>`. Without one it answers 401; if `LIMITLESS_API_KEY` isn't set on the
+deployment it answers 500 rather than serving anything.
 
-This example simply prints the Markdown content from each the most recent record.
+| Route | What it does |
+| --- | --- |
+| `GET /v1/lifelogs` | Same parameters and response as [the Limitless endpoint](openapi.yml): `timezone`, `date`, `start`, `end`, `cursor`, `direction` (default `desc`), `includeMarkdown`, `includeHeadings`, `isStarred`, `limit` (1-100). |
+| `GET /v1/search?query=...` | Full-text search over transcript markdown, with `start`, `end`, `timezone`, `cursor`, `limit`. Returns lifelogs in `data.lifelogs`. |
+| `GET /sync` | Runs one sync. 200 when it finished, 500 when it failed. |
 
 ```bash
-LIMITLESS_API_KEY="your_api_key" python export_markdown.py
+SITE=https://<deployment>.convex.site
+curl -H "X-API-Key: $LIMITLESS_API_KEY" "$SITE/v1/lifelogs?date=2025-07-02&timezone=America/Los_Angeles"
+curl -H "X-API-Key: $LIMITLESS_API_KEY" "$SITE/v1/search?query=dentist&limit=10"
 ```
 
-##### Output:
+Convex functions are all internal; these routes are the only public surface.
 
-```markdown
-A request to play a song, followed by a discussion about the lyrics
+## Search latency
 
-Requesting Siri to play "Shiny" from Moana.
+Measured on a local backend (8 cores) with 10,000 synthetic lifelogs (20 a day for 500
+days, 150-1,500 words each, 142 MB), timing whole HTTP requests over localhost,
+including the key check and JSON:
 
-    Speaker 1: Okay.
+| Request | p50 | p95 |
+| --- | --- | --- |
+| `/v1/search`, `limit=10` | 11 ms | 15-29 ms |
+| `/v1/search`, `limit=50` | 22-28 ms | 33-91 ms |
+| `/v1/lifelogs`, `limit=10` | 10 ms | 14 ms |
 
-    Speaker 2: serious.
-
-    Speaker 2: Siri, play Shiny from Moana in the front room.
-
-    Speaker 2: Shiny from Moana soundtrack by Jemaine Clement now playing on the front room.
-
-Discussing the desired part of the song.
-
-    Speaker 3: It's from the part where you're singing. we want the shiny.
-
-    Speaker 3: Right, Mom.
-
-Confusion about the lyrics and a reference to Grandma's advice.
-
-... etc ...
-```
-
-### Generate a daily summary from your transcripts
+A cloud deployment adds network latency; that wasn't measured. To reproduce against your
+own local deployment:
 
 ```bash
-LIMITLESS_API_KEY="your_api_key" OPENAI_API_KEY="sk-...." python summarize_day.py
+node scripts/bench-search.mjs corpus 10000 > corpus.jsonl
+npx convex import --table lifelogs --replace -y corpus.jsonl
+LIMITLESS_API_KEY=<deployment key> node scripts/bench-search.mjs run http://127.0.0.1:3211
 ```
 
-##### Output (will stream to the console):
+## Tests and limitations
 
-```markdown
-Here's a summary of the provided transcripts:
+`npm test` runs offline with [`convex-test`](https://www.npmjs.com/package/convex-test):
+the HTTP API's compatibility (auth, CORS, dates and timezones, cursors, filters, search),
+and the sync against a fake Limitless API (first sync, days longer than a page, resuming
+after a gap, reruns, 429 with `retryAfter`, server errors, a bad key).
 
-1. **Song Request and Lyrics Discussion**: A family member requests Siri to play "Shiny" from Moana. They discuss their favorite parts of the song, express confusion over the lyrics, and reflect on Grandma's advice to "listen to your heart."
+- **Live sync is untested here.** The tests encode the API's documented behaviour and
+  what was observed while building this (a cursor is returned even on a day's last page);
+  no run against `api.limitless.ai` was possible without a key.
+- After a 429 the sync stops and doesn't retry by itself; the next scheduled run resumes.
+- Lifelogs edited upstream after they were synced aren't refreshed, and deletions aren't
+  mirrored.
+- Dates are UTC days.
 
-2. **Swimming Conversation**: You and another speaker recall whose child was first in the water, discuss a successful swim attempt, and consider whether to do another lap.
-
-... etc ...
-```
-
-## ℹ️ More information
-
-For more information on the API, see the [documentation](https://limitless.ai/developers/docs/api).
-
-## 🛟 Support
-
-If you need help, join our [Slack community](https://www.limitless.ai/community), follow us on [X/Twitter](https://twitter.com/limitlessai), or [email us](mailto:support@limitless.ai).
+Started as a fork of
+[limitless-ai-inc/limitless-api-examples](https://github.com/limitless-ai-inc/limitless-api-examples);
+`openapi.yml` is from there.

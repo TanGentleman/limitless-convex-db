@@ -1,11 +1,6 @@
-.venv/
+node_modules/
 .env
 .env.local
+.convex/
 .DS_Store
-__pycache__/
-# convex-app/convex/
-convex-app/node_modules/*
-convex-app/convex/_generated/
-convex-app/package-lock.json
-deprecated/
-data/
+corpus.jsonl
