@@ -82,19 +82,6 @@ Each branch is based on the previous one.
   day's last page come from the docs and from notes in the code; Slack notifications;
   cloud latency.
 
-## Apply a branch upstream
-
-```bash
-# in a kranti-sandbox clone: everything after the import commit
-git fetch origin
-base=$(git log -1 --format=%H --grep='^Import limitless-convex-db upstream' origin/limitless-convex-db-1)
-git format-patch --relative=limitless-convex-db "$base"..origin/limitless-convex-db-6 -o /tmp/lcdb
-# in a clean upstream clone at 626480a
-git clone https://github.com/TanGentleman/limitless-convex-db && cd limitless-convex-db
-git am /tmp/lcdb/*.patch
-npm ci && npm run typecheck && npm test    # -3 and later (typecheck from -2)
-```
-
 ## Needs Tan
 
 - Detach the fork? It is still a GitHub fork of `limitless-ai-inc/limitless-api-examples`;
